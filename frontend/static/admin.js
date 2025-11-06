@@ -194,14 +194,33 @@ async function loadMappings() {
         
         let html = '';
         mappings.forEach(mapping => {
+            // Count mapping types
+            let simpleCount = 0;
+            let complexCount = 0;
+            mapping.column_mappings.forEach(cm => {
+                if (cm.source_columns && cm.source_columns.length > 1) {
+                    complexCount++;
+                } else if (cm.transformation || cm.transformation_type) {
+                    complexCount++;
+                } else {
+                    simpleCount++;
+                }
+            });
+            
             html += `
                 <div class="card mb-3">
                     <div class="card-body">
                         <h5 class="card-title">${mapping.source_schema}.${mapping.source_table} → ${mapping.destination_schema}.${mapping.destination_table}</h5>
                         <p class="card-text">
-                            <strong>Columns:</strong> ${mapping.column_mappings.length} mapped<br>
+                            <strong>Columns:</strong> ${mapping.column_mappings.length} mapped
+                            ${simpleCount > 0 ? `<span class="badge bg-info ms-1">${simpleCount} direct</span>` : ''}
+                            ${complexCount > 0 ? `<span class="badge bg-warning ms-1">${complexCount} transformed</span>` : ''}
+                            <br>
                             <strong>Status:</strong> ${mapping.enabled ? '<span class="badge bg-success">Enabled</span>' : '<span class="badge bg-secondary">Disabled</span>'}
                         </p>
+                        <button class="btn btn-sm btn-info" onclick="viewMappingDetails('${mapping.id}')">
+                            <i class="bi bi-eye"></i> View Details
+                        </button>
                         <button class="btn btn-sm btn-danger" onclick="deleteMapping('${mapping.id}')">
                             <i class="bi bi-trash"></i> Delete
                         </button>
@@ -495,7 +514,8 @@ function autoMapColumns() {
         );
         
         if (matchingDestCol) {
-            addColumnMapping(srcCol.column_name, matchingDestCol.column_name);
+            // Use array format for consistency with new UI
+            addColumnMapping([srcCol.column_name], matchingDestCol.column_name);
             mappedCount++;
         }
     });
@@ -507,8 +527,8 @@ function autoMapColumns() {
     }
 }
 
-// Add a single column mapping row
-function addColumnMapping(sourceCol = '', destCol = '') {
+// Add a single column mapping row with advanced options
+function addColumnMapping(preSelectedSources = [], destCol = '', transformation = '', transformationType = '') {
     if (sourceColumns.length === 0 || destColumns.length === 0) {
         showAlert('warning', 'Please load source and destination columns first');
         return;
@@ -523,41 +543,159 @@ function addColumnMapping(sourceCol = '', destCol = '') {
     
     const mappingId = columnMappingCounter++;
     
+    // Convert single source to array for backward compatibility
+    if (typeof preSelectedSources === 'string' && preSelectedSources) {
+        preSelectedSources = [preSelectedSources];
+    }
+    
     const mappingRow = document.createElement('div');
-    mappingRow.className = 'row mb-2 column-mapping-row';
+    mappingRow.className = 'card mb-3 column-mapping-row';
     mappingRow.id = `mapping-row-${mappingId}`;
     mappingRow.innerHTML = `
-        <div class="col-md-5">
-            <select class="form-select form-select-sm" id="src-col-${mappingId}" required>
-                <option value="">Select source column...</option>
-                ${sourceColumns.map(col => `
-                    <option value="${col.column_name}" ${col.column_name === sourceCol ? 'selected' : ''}>
-                        ${col.column_name} (${col.data_type})
-                    </option>
-                `).join('')}
-            </select>
-        </div>
-        <div class="col-md-1 text-center">
-            <i class="bi bi-arrow-right"></i>
-        </div>
-        <div class="col-md-5">
-            <select class="form-select form-select-sm" id="dest-col-${mappingId}" required>
-                <option value="">Select destination column...</option>
-                ${destColumns.map(col => `
-                    <option value="${col.column_name}" ${col.column_name === destCol ? 'selected' : ''}>
-                        ${col.column_name} (${col.data_type})
-                    </option>
-                `).join('')}
-            </select>
-        </div>
-        <div class="col-md-1 text-center">
-            <button type="button" class="btn btn-sm btn-danger" onclick="removeColumnMapping(${mappingId})">
-                <i class="bi bi-trash"></i>
-            </button>
+        <div class="card-body">
+            <div class="row align-items-start">
+                <!-- Source Columns (Multi-select with checkboxes) -->
+                <div class="col-md-5">
+                    <label class="form-label fw-bold">Source Column(s)</label>
+                    <div class="border rounded p-2" style="max-height: 200px; overflow-y: auto; background-color: #f8f9fa;">
+                        ${sourceColumns.map(col => {
+                            const isChecked = preSelectedSources.includes(col.column_name);
+                            return `
+                                <div class="form-check">
+                                    <input class="form-check-input src-col-checkbox-${mappingId}" 
+                                           type="checkbox" 
+                                           value="${col.column_name}" 
+                                           id="src-${mappingId}-${col.column_name}"
+                                           ${isChecked ? 'checked' : ''}
+                                           onchange="updateMappingPreview(${mappingId})">
+                                    <label class="form-check-label small" for="src-${mappingId}-${col.column_name}">
+                                        ${col.column_name} <span class="text-muted">(${col.data_type})</span>
+                                    </label>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                    <small class="text-muted">Select one or more columns</small>
+                </div>
+                
+                <div class="col-md-1 text-center d-flex align-items-center justify-content-center">
+                    <i class="bi bi-arrow-right fs-4"></i>
+                </div>
+                
+                <!-- Destination Column -->
+                <div class="col-md-5">
+                    <label class="form-label fw-bold">Destination Column</label>
+                    <select class="form-select form-select-sm mb-2" id="dest-col-${mappingId}" required onchange="updateMappingPreview(${mappingId})">
+                        <option value="">Select destination column...</option>
+                        ${destColumns.map(col => `
+                            <option value="${col.column_name}" ${col.column_name === destCol ? 'selected' : ''}>
+                                ${col.column_name} (${col.data_type})
+                            </option>
+                        `).join('')}
+                    </select>
+                    
+                    <!-- Transformation Type -->
+                    <label class="form-label small">Transformation Type</label>
+                    <select class="form-select form-select-sm mb-2" id="trans-type-${mappingId}" onchange="handleTransformationTypeChange(${mappingId})">
+                        <option value="">Direct Mapping (No Transformation)</option>
+                        <option value="json" ${transformationType === 'json' ? 'selected' : ''}>JSON Object</option>
+                        <option value="concat" ${transformationType === 'concat' ? 'selected' : ''}>Concatenation</option>
+                        <option value="custom" ${transformationType === 'custom' ? 'selected' : ''}>Custom SQL Expression</option>
+                    </select>
+                    
+                    <!-- Custom Transformation Field -->
+                    <div id="trans-custom-${mappingId}" style="display: ${transformationType === 'custom' ? 'block' : 'none'};">
+                        <label class="form-label small">Custom SQL Expression</label>
+                        <input type="text" class="form-control form-control-sm" id="trans-expr-${mappingId}" 
+                               placeholder="e.g., CONCAT({col1}, ' - ', {col2})"
+                               value="${transformation || ''}"
+                               onchange="updateMappingPreview(${mappingId})">
+                        <small class="text-muted">Use {col1}, {col2}, etc. as placeholders</small>
+                    </div>
+                    
+                    <!-- Preview -->
+                    <div class="mt-2 p-2 bg-light border rounded" id="mapping-preview-${mappingId}">
+                        <small class="text-muted">Mapping preview will appear here</small>
+                    </div>
+                </div>
+                
+                <div class="col-md-1 text-center">
+                    <button type="button" class="btn btn-sm btn-danger" onclick="removeColumnMapping(${mappingId})" title="Remove mapping">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            </div>
         </div>
     `;
     
     container.appendChild(mappingRow);
+    
+    // Update preview on creation
+    updateMappingPreview(mappingId);
+}
+
+// Handle transformation type change
+function handleTransformationTypeChange(mappingId) {
+    const transType = document.getElementById(`trans-type-${mappingId}`).value;
+    const customDiv = document.getElementById(`trans-custom-${mappingId}`);
+    
+    // Show/hide custom expression field
+    if (transType === 'custom') {
+        customDiv.style.display = 'block';
+    } else {
+        customDiv.style.display = 'none';
+    }
+    
+    updateMappingPreview(mappingId);
+}
+
+// Update mapping preview
+function updateMappingPreview(mappingId) {
+    const previewDiv = document.getElementById(`mapping-preview-${mappingId}`);
+    const destCol = document.getElementById(`dest-col-${mappingId}`).value;
+    const transType = document.getElementById(`trans-type-${mappingId}`).value;
+    
+    // Get selected source columns
+    const selectedSources = [];
+    document.querySelectorAll(`.src-col-checkbox-${mappingId}:checked`).forEach(cb => {
+        selectedSources.push(cb.value);
+    });
+    
+    if (selectedSources.length === 0 || !destCol) {
+        previewDiv.innerHTML = '<small class="text-muted">Select source and destination columns</small>';
+        return;
+    }
+    
+    let previewText = '';
+    
+    if (selectedSources.length === 1 && !transType) {
+        // Simple 1:1 mapping
+        previewText = `<strong>${selectedSources[0]}</strong> → <strong>${destCol}</strong>`;
+    } else {
+        // Complex mapping with transformation
+        let transformation = '';
+        
+        if (transType === 'json') {
+            const jsonPairs = selectedSources.map(col => `'${col}': ${col}`).join(', ');
+            transformation = `JSON_OBJECT(${jsonPairs})`;
+        } else if (transType === 'concat') {
+            transformation = `CONCAT(${selectedSources.join(", ', ', ")})`;
+        } else if (transType === 'custom') {
+            const customExpr = document.getElementById(`trans-expr-${mappingId}`).value;
+            transformation = customExpr || '<i>Enter custom expression</i>';
+        } else {
+            // Multiple columns without transformation
+            transformation = `[${selectedSources.join(', ')}]`;
+        }
+        
+        previewText = `
+            <div><strong>Sources:</strong> ${selectedSources.join(', ')}</div>
+            <div><strong>Destination:</strong> ${destCol}</div>
+            <div><strong>Transform:</strong> <code class="small">${transformation}</code></div>
+        `;
+    }
+    
+    previewDiv.innerHTML = previewText;
 }
 
 // Remove a column mapping row
@@ -604,25 +742,84 @@ async function saveMappingFromModal() {
     }
     
     let hasError = false;
-    mappingRows.forEach(row => {
+    let errorMessage = '';
+    
+    mappingRows.forEach((row, index) => {
         const rowId = row.id.split('-')[2];
-        const srcCol = document.getElementById(`src-col-${rowId}`).value;
-        const destCol = document.getElementById(`dest-col-${rowId}`).value;
         
-        if (!srcCol || !destCol) {
+        // Get selected source columns (checkboxes)
+        const selectedSources = [];
+        document.querySelectorAll(`.src-col-checkbox-${rowId}:checked`).forEach(cb => {
+            selectedSources.push(cb.value);
+        });
+        
+        const destCol = document.getElementById(`dest-col-${rowId}`).value;
+        const transType = document.getElementById(`trans-type-${rowId}`).value;
+        
+        // Validation
+        if (selectedSources.length === 0) {
             hasError = true;
+            errorMessage = `Mapping ${index + 1}: Please select at least one source column`;
             return;
         }
         
-        columnMappings.push({
-            source_column: srcCol,
+        if (!destCol) {
+            hasError = true;
+            errorMessage = `Mapping ${index + 1}: Please select a destination column`;
+            return;
+        }
+        
+        // Build transformation
+        let transformation = null;
+        let transformationType = null;
+        
+        if (transType) {
+            transformationType = transType;
+            
+            if (transType === 'json') {
+                // Generate JSON_OBJECT transformation
+                const jsonPairs = selectedSources.map(col => `'${col}', ${col}`).join(', ');
+                transformation = `JSON_OBJECT(${jsonPairs})`;
+            } else if (transType === 'concat') {
+                // Generate CONCAT transformation
+                transformation = `CONCAT(${selectedSources.join(", ', ', ")})`;
+            } else if (transType === 'custom') {
+                // Use custom expression
+                const customExpr = document.getElementById(`trans-expr-${rowId}`).value;
+                if (!customExpr) {
+                    hasError = true;
+                    errorMessage = `Mapping ${index + 1}: Please enter a custom transformation expression`;
+                    return;
+                }
+                transformation = customExpr;
+                
+                // Replace placeholders with actual column names
+                selectedSources.forEach((col, idx) => {
+                    const placeholder = `{col${idx + 1}}`;
+                    transformation = transformation.replace(new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), col);
+                });
+            }
+        }
+        
+        // Create column mapping object
+        const colMapping = {
             destination_column: destCol,
-            transformation: null
-        });
+            transformation: transformation,
+            transformation_type: transformationType
+        };
+        
+        // Add source column(s) - backward compatible
+        if (selectedSources.length === 1) {
+            colMapping.source_column = selectedSources[0];
+        } else {
+            colMapping.source_columns = selectedSources;
+        }
+        
+        columnMappings.push(colMapping);
     });
     
     if (hasError) {
-        showAlert('warning', 'Please complete all column mappings');
+        showAlert('warning', errorMessage || 'Please complete all column mappings');
         return;
     }
     
@@ -663,6 +860,122 @@ async function saveMappingFromModal() {
         }
     } catch (error) {
         showAlert('danger', `Error creating mapping: ${error.message}`);
+    }
+}
+
+// View mapping details
+async function viewMappingDetails(mappingId) {
+    try {
+        const response = await fetch(`${API_BASE}/admin/mapping/${mappingId}`);
+        const mapping = await response.json();
+        
+        let detailsHtml = `
+            <div class="mb-3">
+                <h6>Source: ${mapping.source_schema}.${mapping.source_table}</h6>
+                <h6>Destination: ${mapping.destination_schema}.${mapping.destination_table}</h6>
+            </div>
+            <hr>
+            <h6 class="mb-3">Column Mappings:</h6>
+            <div class="table-responsive">
+                <table class="table table-sm table-bordered">
+                    <thead>
+                        <tr>
+                            <th>Source Column(s)</th>
+                            <th>Destination Column</th>
+                            <th>Transformation</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+        
+        mapping.column_mappings.forEach((cm, idx) => {
+            let sourceDisplay = '';
+            if (cm.source_columns && cm.source_columns.length > 0) {
+                sourceDisplay = cm.source_columns.join(', ');
+            } else if (cm.source_column) {
+                sourceDisplay = cm.source_column;
+            }
+            
+            let transformDisplay = '-';
+            if (cm.transformation_type) {
+                if (cm.transformation_type === 'json') {
+                    transformDisplay = '<span class="badge bg-info">JSON Object</span>';
+                } else if (cm.transformation_type === 'concat') {
+                    transformDisplay = '<span class="badge bg-warning">Concatenation</span>';
+                } else if (cm.transformation_type === 'custom') {
+                    transformDisplay = '<span class="badge bg-primary">Custom</span>';
+                }
+                if (cm.transformation) {
+                    transformDisplay += `<br><code class="small">${cm.transformation}</code>`;
+                }
+            } else if (cm.transformation) {
+                transformDisplay = `<code class="small">${cm.transformation}</code>`;
+            }
+            
+            detailsHtml += `
+                <tr>
+                    <td>${sourceDisplay}</td>
+                    <td><strong>${cm.destination_column}</strong></td>
+                    <td>${transformDisplay}</td>
+                </tr>
+            `;
+        });
+        
+        detailsHtml += `
+                    </tbody>
+                </table>
+            </div>
+            <hr>
+            <div class="row">
+                <div class="col-md-4">
+                    <strong>Sync Inserts:</strong> ${mapping.sync_inserts ? '✓' : '✗'}
+                </div>
+                <div class="col-md-4">
+                    <strong>Sync Updates:</strong> ${mapping.sync_updates ? '✓' : '✗'}
+                </div>
+                <div class="col-md-4">
+                    <strong>Sync Deletes:</strong> ${mapping.sync_deletes ? '✓' : '✗'}
+                </div>
+            </div>
+        `;
+        
+        // Show in alert or modal (for now, let's use a simple approach)
+        // Create a temporary modal
+        const existingModal = document.getElementById('mappingDetailsModal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        
+        const modalHtml = `
+            <div class="modal fade" id="mappingDetailsModal" tabindex="-1">
+                <div class="modal-dialog modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Mapping Details: ${mapping.id}</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            ${detailsHtml}
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        const modal = new bootstrap.Modal(document.getElementById('mappingDetailsModal'));
+        modal.show();
+        
+        // Remove modal from DOM when hidden
+        document.getElementById('mappingDetailsModal').addEventListener('hidden.bs.modal', function() {
+            this.remove();
+        });
+        
+    } catch (error) {
+        showAlert('danger', `Error loading mapping details: ${error.message}`);
     }
 }
 

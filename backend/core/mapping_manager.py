@@ -30,15 +30,30 @@ class MappingManager:
         if not mapping.column_mappings:
             errors.append("Mapping must have at least one column mapping")
         
-        # Check for duplicate source columns
-        source_columns = [cm.source_column for cm in mapping.column_mappings]
-        if len(source_columns) != len(set(source_columns)):
-            errors.append("Duplicate source columns found in mapping")
+        # Validate each column mapping
+        all_source_cols = []
+        for idx, cm in enumerate(mapping.column_mappings):
+            # Each mapping must have either source_column OR source_columns
+            if not cm.source_column and not cm.source_columns:
+                errors.append(f"Column mapping {idx + 1}: must have either source_column or source_columns")
+            
+            # Cannot have both
+            if cm.source_column and cm.source_columns:
+                errors.append(f"Column mapping {idx + 1}: cannot have both source_column and source_columns")
+            
+            # Collect all source columns for duplicate check
+            if cm.source_column:
+                all_source_cols.append(cm.source_column)
+            if cm.source_columns:
+                all_source_cols.extend(cm.source_columns)
+            
+            # If using multiple source columns, transformation should be provided
+            if cm.source_columns and len(cm.source_columns) > 1 and not cm.transformation:
+                logger.warning(f"Column mapping {idx + 1}: Multiple source columns without transformation. "
+                             "Consider adding a transformation (e.g., JSON_OBJECT, CONCAT)")
         
-        # Check for duplicate destination columns
-        dest_columns = [cm.destination_column for cm in mapping.column_mappings]
-        if len(dest_columns) != len(set(dest_columns)):
-            errors.append("Duplicate destination columns found in mapping")
+        # Note: We now allow duplicate destination columns (many-to-one is OK with transformations)
+        # but we still check for duplicate source columns being used individually
         
         # Validate table names
         if not mapping.source_schema or not mapping.source_table:
@@ -131,11 +146,13 @@ class MappingManager:
             
         Returns:
             Dictionary mapping source columns to destination columns
+            Note: For many-to-one mappings, only includes simple 1:1 mappings
         """
-        return {
-            cm.source_column: cm.destination_column
-            for cm in mapping.column_mappings
-        }
+        result = {}
+        for cm in mapping.column_mappings:
+            if cm.source_column:  # Simple 1:1 mapping
+                result[cm.source_column] = cm.destination_column
+        return result
     
     @staticmethod
     def get_reverse_column_mapping(mapping: TableMapping) -> Dict[str, str]:
@@ -214,6 +231,7 @@ class MappingManager:
 
 # Global mapping manager instance
 mapping_manager = MappingManager()
+
 
 
 

@@ -55,10 +55,17 @@ class ColumnInfo(BaseModel):
 
 
 class ColumnMapping(BaseModel):
-    """Column-to-column mapping."""
-    source_column: str
+    """Column-to-column mapping.
+    
+    Supports:
+    - Simple 1:1 mapping (source_column -> destination_column)
+    - Many-to-one mapping (source_columns list -> destination_column with transformation)
+    """
+    source_column: Optional[str] = None  # For single column mapping (backward compatible)
+    source_columns: Optional[List[str]] = None  # For multiple columns (e.g., JSON aggregation)
     destination_column: str
-    transformation: Optional[str] = None  # SQL expression for transformation
+    transformation: Optional[str] = None  # SQL expression for transformation (e.g., 'JSON_OBJECT', 'CONCAT')
+    transformation_type: Optional[str] = None  # Helper: 'json', 'concat', 'custom', None for direct mapping
 
 
 class TableMapping(BaseModel):

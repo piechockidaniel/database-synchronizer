@@ -555,7 +555,7 @@ function addColumnMapping(preSelectedSources = [], destCol = '', transformation 
         <div class="card-body">
             <div class="row align-items-start">
                 <!-- Source Columns (Multi-select with checkboxes) -->
-                <div class="col-md-5">
+        <div class="col-md-5">
                     <label class="form-label fw-bold">Source Column(s)</label>
                     <div class="border rounded p-2" style="max-height: 200px; overflow-y: auto; background-color: #f8f9fa;">
                         ${sourceColumns.map(col => {
@@ -571,10 +571,10 @@ function addColumnMapping(preSelectedSources = [], destCol = '', transformation 
                                     <label class="form-check-label small" for="src-${mappingId}-${col.column_name}">
                                         ${col.column_name} <span class="text-muted">(${col.data_type})</span>
                                     </label>
-                                </div>
+        </div>
                             `;
                         }).join('')}
-                    </div>
+        </div>
                     <small class="text-muted">Select one or more columns</small>
                     
                     <!-- Column Control Options -->
@@ -596,16 +596,16 @@ function addColumnMapping(preSelectedSources = [], destCol = '', transformation 
                 </div>
                 
                 <!-- Destination Column -->
-                <div class="col-md-5">
+        <div class="col-md-5">
                     <label class="form-label fw-bold">Destination Column</label>
                     <select class="form-select form-select-sm mb-2" id="dest-col-${mappingId}" required onchange="updateMappingPreview(${mappingId})">
-                        <option value="">Select destination column...</option>
-                        ${destColumns.map(col => `
-                            <option value="${col.column_name}" ${col.column_name === destCol ? 'selected' : ''}>
-                                ${col.column_name} (${col.data_type})
-                            </option>
-                        `).join('')}
-                    </select>
+                <option value="">Select destination column...</option>
+                ${destColumns.map(col => `
+                    <option value="${col.column_name}" ${col.column_name === destCol ? 'selected' : ''}>
+                        ${col.column_name} (${col.data_type})
+                    </option>
+                `).join('')}
+            </select>
                     
                     <!-- Transformation Type -->
                     <label class="form-label small">Transformation Type</label>
@@ -624,7 +624,7 @@ function addColumnMapping(preSelectedSources = [], destCol = '', transformation 
                                value="${transformation || ''}"
                                onchange="updateMappingPreview(${mappingId})">
                         <small class="text-muted">Use {col1}, {col2}, etc. as placeholders</small>
-                    </div>
+        </div>
                     
                     <!-- Auto-Generate Options -->
                     <div class="mt-2 p-2 border rounded bg-white">
@@ -660,10 +660,10 @@ function addColumnMapping(preSelectedSources = [], destCol = '', transformation 
                     </div>
                 </div>
                 
-                <div class="col-md-1 text-center">
+        <div class="col-md-1 text-center">
                     <button type="button" class="btn btn-sm btn-danger" onclick="removeColumnMapping(${mappingId})" title="Remove mapping">
-                        <i class="bi bi-trash"></i>
-                    </button>
+                <i class="bi bi-trash"></i>
+            </button>
                 </div>
             </div>
         </div>
@@ -1143,29 +1143,37 @@ async function loadWorksets() {
         const worksets = await response.json();
         
         if (worksets.length === 0) {
-            listDiv.innerHTML = '<p class="text-muted">No working sets configured.</p>';
+            listDiv.innerHTML = '<p class="text-muted">No working sets configured. Click "Create Working Set" to get started.</p>';
             return;
         }
         
         let html = '';
         worksets.forEach(ws => {
             html += `
-                <div class="card mb-3">
+                <div class="card mb-3 ${ws.is_active ? 'border-success' : ''}">
                     <div class="card-body">
                         <h5 class="card-title">
-                            ${ws.name}
-                            ${ws.is_active ? '<span class="badge bg-success ms-2">Active</span>' : ''}
+                            <i class="bi bi-collection"></i> ${ws.name}
+                            ${ws.is_active ? '<span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i> Active</span>' : '<span class="badge bg-secondary ms-2">Inactive</span>'}
                         </h5>
                         <p class="card-text">
-                            ${ws.description || 'No description'}<br>
-                            <strong>Mappings:</strong> ${ws.table_mappings.length}
+                            ${ws.description ? `<em>${ws.description}</em><br>` : ''}
+                            <strong>ID:</strong> <code>${ws.id}</code><br>
+                            <strong>Mappings:</strong> ${ws.table_mappings.length} table(s)<br>
+                            <strong>Source:</strong> ${ws.source_connection.server}/${ws.source_connection.database}<br>
+                            <strong>Destination:</strong> ${ws.destination_connection.server}/${ws.destination_connection.database}
                         </p>
+                        <div class="btn-group" role="group">
+                            <button class="btn btn-sm btn-info" onclick="viewWorksetDetails('${ws.id}')">
+                                <i class="bi bi-eye"></i> View Details
+                            </button>
                         <button class="btn btn-sm btn-primary" onclick="activateWorkset('${ws.id}')" ${ws.is_active ? 'disabled' : ''}>
                             <i class="bi bi-check-circle"></i> Activate
                         </button>
                         <button class="btn btn-sm btn-danger" onclick="deleteWorkset('${ws.id}')">
                             <i class="bi bi-trash"></i> Delete
                         </button>
+                        </div>
                     </div>
                 </div>
             `;
@@ -1177,8 +1185,298 @@ async function loadWorksets() {
     }
 }
 
+async function viewWorksetDetails(worksetId) {
+    try {
+        const response = await fetch(`${API_BASE}/admin/workset/${worksetId}`);
+        const ws = await response.json();
+        
+        let detailsHtml = `
+            <div class="mb-3">
+                <h6><i class="bi bi-collection"></i> ${ws.name}</h6>
+                <p class="text-muted">${ws.description || 'No description'}</p>
+            </div>
+            <hr>
+            <h6 class="mb-3">Connections</h6>
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <strong>Source Connection:</strong><br>
+                    <small>
+                        <strong>Server:</strong> ${ws.source_connection.server}:${ws.source_connection.port}<br>
+                        <strong>Database:</strong> ${ws.source_connection.database}<br>
+                        <strong>Auth:</strong> ${ws.source_connection.use_windows_auth ? 'Windows' : 'SQL'}
+                    </small>
+                </div>
+                <div class="col-md-6">
+                    <strong>Destination Connection:</strong><br>
+                    <small>
+                        <strong>Server:</strong> ${ws.destination_connection.server}:${ws.destination_connection.port}<br>
+                        <strong>Database:</strong> ${ws.destination_connection.database}<br>
+                        <strong>Auth:</strong> ${ws.destination_connection.use_windows_auth ? 'Windows' : 'SQL'}
+                    </small>
+                </div>
+            </div>
+            <hr>
+            <h6 class="mb-3">Table Mappings (${ws.table_mappings.length})</h6>
+            <ul class="list-group">
+        `;
+        
+        ws.table_mappings.forEach(mappingId => {
+            detailsHtml += `<li class="list-group-item"><code>${mappingId}</code></li>`;
+        });
+        
+        detailsHtml += `
+            </ul>
+            <hr>
+            <div class="row">
+                <div class="col-md-12">
+                    <strong>Status:</strong> ${ws.is_active ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Inactive</span>'}<br>
+                    <strong>Created:</strong> ${new Date(ws.created_at).toLocaleString()}<br>
+                    <strong>Updated:</strong> ${new Date(ws.updated_at).toLocaleString()}
+                </div>
+            </div>
+        `;
+        
+        // Create temporary modal for details
+        const existingModal = document.getElementById('worksetDetailsModal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        
+        const modalHtml = `
+            <div class="modal fade" id="worksetDetailsModal" tabindex="-1">
+                <div class="modal-dialog modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Working Set Details: ${ws.id}</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            ${detailsHtml}
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        const modal = new bootstrap.Modal(document.getElementById('worksetDetailsModal'));
+        modal.show();
+        
+        // Remove modal from DOM when hidden
+        document.getElementById('worksetDetailsModal').addEventListener('hidden.bs.modal', function() {
+            this.remove();
+        });
+        
+    } catch (error) {
+        showAlert('danger', `Error loading working set details: ${error.message}`);
+    }
+}
+
 function showCreateWorksetModal() {
-    showAlert('info', 'Working set creation UI would open here. Use API to create working sets programmatically.');
+    // Reset the form
+    document.getElementById('createWorksetForm').reset();
+    document.getElementById('wsSetActive').checked = false;
+    document.getElementById('wsSrcWindowsAuth').checked = true;
+    document.getElementById('wsDestWindowsAuth').checked = true;
+    document.getElementById('wsSrcPort').value = '1433';
+    document.getElementById('wsDestPort').value = '1433';
+    
+    // Hide credentials initially
+    document.getElementById('wsSrcCredentials').style.display = 'none';
+    document.getElementById('wsDestCredentials').style.display = 'none';
+    
+    // Clear status
+    document.getElementById('wsSrcConnectionStatus').innerHTML = '';
+    document.getElementById('wsDestConnectionStatus').innerHTML = '';
+    
+    // Clear mappings
+    document.getElementById('wsMappingsContainer').innerHTML = '<p class="text-muted">Click "Load Available Mappings" to see available table mappings</p>';
+    document.getElementById('wsMappingCount').textContent = '0';
+    
+    // Show the modal
+    const modal = new bootstrap.Modal(document.getElementById('createWorksetModal'));
+    modal.show();
+}
+
+function toggleWsSourceCredentials() {
+    const useWindowsAuth = document.getElementById('wsSrcWindowsAuth').checked;
+    document.getElementById('wsSrcCredentials').style.display = useWindowsAuth ? 'none' : 'block';
+}
+
+function toggleWsDestCredentials() {
+    const useWindowsAuth = document.getElementById('wsDestWindowsAuth').checked;
+    document.getElementById('wsDestCredentials').style.display = useWindowsAuth ? 'none' : 'block';
+}
+
+async function testWorksetConnection(type) {
+    const prefix = type === 'source' ? 'wsSrc' : 'wsDest';
+    const statusDiv = document.getElementById(`${prefix}ConnectionStatus`);
+    
+    const config = {
+        name: document.getElementById(`${prefix}Name`).value,
+        server: document.getElementById(`${prefix}Server`).value,
+        port: parseInt(document.getElementById(`${prefix}Port`).value),
+        database: document.getElementById(`${prefix}Database`).value,
+        use_windows_auth: document.getElementById(`${prefix}WindowsAuth`).checked,
+        username: document.getElementById(`${prefix}Username`).value || null,
+        password: document.getElementById(`${prefix}Password`).value || null
+    };
+    
+    try {
+        statusDiv.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div> Testing connection...';
+        
+        const response = await fetch(`${API_BASE}/admin/connect/test`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(config)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            statusDiv.innerHTML = `<div class="alert alert-success">${result.message}</div>`;
+        } else {
+            statusDiv.innerHTML = `<div class="alert alert-danger">${result.message}</div>`;
+        }
+    } catch (error) {
+        statusDiv.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+    }
+}
+
+async function loadAvailableMappingsForWorkset() {
+    const container = document.getElementById('wsMappingsContainer');
+    
+    try {
+        container.innerHTML = '<div class="spinner-border"></div> Loading mappings...';
+        
+        const response = await fetch(`${API_BASE}/admin/mapping/list`);
+        const mappings = await response.json();
+        
+        if (mappings.length === 0) {
+            container.innerHTML = '<p class="text-muted">No mappings available. Create mappings first.</p>';
+            return;
+        }
+        
+        let html = '';
+        mappings.forEach(mapping => {
+            html += `
+                <div class="form-check">
+                    <input class="form-check-input ws-mapping-checkbox" type="checkbox" 
+                           value="${mapping.id}" id="ws-map-${mapping.id}" 
+                           onchange="updateWorksetMappingCount()">
+                    <label class="form-check-label" for="ws-map-${mapping.id}">
+                        <strong>${mapping.id}</strong><br>
+                        <small class="text-muted">
+                            ${mapping.source_schema}.${mapping.source_table} → 
+                            ${mapping.destination_schema}.${mapping.destination_table}
+                            (${mapping.column_mappings.length} columns)
+                        </small>
+                    </label>
+                </div>
+                <hr class="my-2">
+            `;
+        });
+        
+        container.innerHTML = html;
+        updateWorksetMappingCount();
+        
+    } catch (error) {
+        container.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+    }
+}
+
+function updateWorksetMappingCount() {
+    const checkboxes = document.querySelectorAll('.ws-mapping-checkbox:checked');
+    document.getElementById('wsMappingCount').textContent = checkboxes.length;
+}
+
+async function saveWorksetFromModal() {
+    // Validate basic fields
+    const wsId = document.getElementById('wsId').value;
+    const wsName = document.getElementById('wsName').value;
+    
+    if (!wsId || !wsName) {
+        showAlert('warning', 'Please fill in Working Set ID and Name');
+        return;
+    }
+    
+    // Build source connection
+    const sourceConnection = {
+        name: document.getElementById('wsSrcName').value,
+        server: document.getElementById('wsSrcServer').value,
+        port: parseInt(document.getElementById('wsSrcPort').value),
+        database: document.getElementById('wsSrcDatabase').value,
+        use_windows_auth: document.getElementById('wsSrcWindowsAuth').checked,
+        username: document.getElementById('wsSrcUsername').value || null,
+        password: document.getElementById('wsSrcPassword').value || null
+    };
+    
+    // Build destination connection
+    const destinationConnection = {
+        name: document.getElementById('wsDestName').value,
+        server: document.getElementById('wsDestServer').value,
+        port: parseInt(document.getElementById('wsDestPort').value),
+        database: document.getElementById('wsDestDatabase').value,
+        use_windows_auth: document.getElementById('wsDestWindowsAuth').checked,
+        username: document.getElementById('wsDestUsername').value || null,
+        password: document.getElementById('wsDestPassword').value || null
+    };
+    
+    // Get selected mappings
+    const selectedMappings = [];
+    document.querySelectorAll('.ws-mapping-checkbox:checked').forEach(cb => {
+        selectedMappings.push(cb.value);
+    });
+    
+    if (selectedMappings.length === 0) {
+        showAlert('warning', 'Please select at least one table mapping');
+        return;
+    }
+    
+    // Build working set object
+    const workset = {
+        id: wsId,
+        name: wsName,
+        description: document.getElementById('wsDescription').value || null,
+        source_connection: sourceConnection,
+        destination_connection: destinationConnection,
+        table_mappings: selectedMappings,
+        is_active: false  // Will be set via activate endpoint if needed
+    };
+    
+    try {
+        const response = await fetch(`${API_BASE}/admin/workset/create`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(workset)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showAlert('success', 'Working set created successfully!');
+            
+            // Activate if requested
+            const setActive = document.getElementById('wsSetActive').checked;
+            if (setActive) {
+                await activateWorkset(wsId);
+            }
+            
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('createWorksetModal'));
+            modal.hide();
+            
+            // Refresh list
+            loadWorksets();
+        } else {
+            showAlert('danger', result.message || 'Failed to create working set');
+        }
+    } catch (error) {
+        showAlert('danger', `Error creating working set: ${error.message}`);
+    }
 }
 
 async function activateWorkset(worksetId) {

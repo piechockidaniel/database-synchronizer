@@ -476,6 +476,208 @@
         </div>
     </div>
 
+    <!-- Create Working Set Modal -->
+    <div class="modal fade" id="createWorksetModal" tabindex="-1" aria-labelledby="createWorksetModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="createWorksetModalLabel">
+                        <i class="bi bi-collection"></i> Create Working Set
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="createWorksetForm">
+                        <!-- Step 1: Basic Information -->
+                        <div class="step-section" id="wsStep1">
+                            <h6 class="text-primary mb-3"><i class="bi bi-1-circle"></i> Basic Information</h6>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Working Set ID</label>
+                                        <input type="text" class="form-control" id="wsId" placeholder="e.g., workset_customers_prod" required>
+                                        <small class="text-muted">Unique identifier for this working set</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Name</label>
+                                        <input type="text" class="form-control" id="wsName" placeholder="e.g., Customer Production Sync" required>
+                                        <small class="text-muted">Friendly name for display</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Description</label>
+                                <textarea class="form-control" id="wsDescription" rows="2" placeholder="Optional description of this working set"></textarea>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="wsSetActive">
+                                <label class="form-check-label" for="wsSetActive">
+                                    Set as active working set immediately
+                                </label>
+                            </div>
+                        </div>
+
+                        <hr class="my-4">
+
+                        <!-- Step 2: Source Connection -->
+                        <div class="step-section" id="wsStep2">
+                            <h6 class="text-primary mb-3"><i class="bi bi-2-circle"></i> Source Connection</h6>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Connection Name</label>
+                                        <input type="text" class="form-control" id="wsSrcName" value="Source Database" required>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Server</label>
+                                        <input type="text" class="form-control" id="wsSrcServer" placeholder="localhost" required>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Database</label>
+                                        <input type="text" class="form-control" id="wsSrcDatabase" required>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Port</label>
+                                        <input type="number" class="form-control" id="wsSrcPort" value="1433">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="wsSrcWindowsAuth" checked onchange="toggleWsSourceCredentials()">
+                                    <label class="form-check-label" for="wsSrcWindowsAuth">
+                                        Use Windows Authentication
+                                    </label>
+                                </div>
+                            </div>
+                            <div id="wsSrcCredentials" style="display: none;">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label class="form-label">Username</label>
+                                            <input type="text" class="form-control" id="wsSrcUsername">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label class="form-label">Password</label>
+                                            <input type="password" class="form-control" id="wsSrcPassword">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="testWorksetConnection('source')">
+                                <i class="bi bi-check-circle"></i> Test Source Connection
+                            </button>
+                            <div id="wsSrcConnectionStatus" class="mt-2"></div>
+                        </div>
+
+                        <hr class="my-4">
+
+                        <!-- Step 3: Destination Connection -->
+                        <div class="step-section" id="wsStep3">
+                            <h6 class="text-primary mb-3"><i class="bi bi-3-circle"></i> Destination Connection</h6>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Connection Name</label>
+                                        <input type="text" class="form-control" id="wsDestName" value="Destination Database" required>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Server</label>
+                                        <input type="text" class="form-control" id="wsDestServer" placeholder="localhost" required>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Database</label>
+                                        <input type="text" class="form-control" id="wsDestDatabase" required>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Port</label>
+                                        <input type="number" class="form-control" id="wsDestPort" value="1433">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="wsDestWindowsAuth" checked onchange="toggleWsDestCredentials()">
+                                    <label class="form-check-label" for="wsDestWindowsAuth">
+                                        Use Windows Authentication
+                                    </label>
+                                </div>
+                            </div>
+                            <div id="wsDestCredentials" style="display: none;">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label class="form-label">Username</label>
+                                            <input type="text" class="form-control" id="wsDestUsername">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label class="form-label">Password</label>
+                                            <input type="password" class="form-control" id="wsDestPassword">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="testWorksetConnection('destination')">
+                                <i class="bi bi-check-circle"></i> Test Destination Connection
+                            </button>
+                            <div id="wsDestConnectionStatus" class="mt-2"></div>
+                        </div>
+
+                        <hr class="my-4">
+
+                        <!-- Step 4: Select Mappings -->
+                        <div class="step-section" id="wsStep4">
+                            <h6 class="text-primary mb-3"><i class="bi bi-4-circle"></i> Select Table Mappings</h6>
+                            <div class="mb-3">
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="loadAvailableMappingsForWorkset()">
+                                    <i class="bi bi-arrow-clockwise"></i> Load Available Mappings
+                                </button>
+                            </div>
+                            <div id="wsMappingsContainer" class="border rounded p-3" style="max-height: 400px; overflow-y: auto;">
+                                <p class="text-muted">Click "Load Available Mappings" to see available table mappings</p>
+                            </div>
+                            <div class="mt-2">
+                                <small class="text-muted">
+                                    <strong>Selected:</strong> <span id="wsMappingCount">0</span> mapping(s)
+                                </small>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                        <i class="bi bi-x-circle"></i> Cancel
+                    </button>
+                    <button type="button" class="btn btn-success" onclick="saveWorksetFromModal()">
+                        <i class="bi bi-save"></i> Create Working Set
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/static/admin.js"></script>
 </body>

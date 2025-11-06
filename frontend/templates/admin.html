@@ -244,6 +244,157 @@
         </div>
     </div>
 
+    <!-- Create Mapping Modal -->
+    <div class="modal fade" id="createMappingModal" tabindex="-1" aria-labelledby="createMappingModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="createMappingModalLabel">
+                        <i class="bi bi-arrow-left-right"></i> Create Table Mapping
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="createMappingForm">
+                        <!-- Step 1: Table Selection -->
+                        <div class="step-section" id="step1">
+                            <h6 class="text-primary mb-3"><i class="bi bi-1-circle"></i> Table Selection</h6>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6>Source</h6>
+                                    <div class="mb-3">
+                                        <label class="form-label">Connection</label>
+                                        <input type="text" class="form-control" id="mapSourceConnection" value="Source Database" readonly>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Schema</label>
+                                        <select class="form-select" id="mapSourceSchema" required>
+                                            <option value="">Select schema...</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Table</label>
+                                        <select class="form-select" id="mapSourceTable" required>
+                                            <option value="">Select table...</option>
+                                        </select>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-primary" onclick="loadSourceTables()">
+                                        <i class="bi bi-arrow-clockwise"></i> Load Tables
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-info" onclick="loadSourceColumns()">
+                                        <i class="bi bi-list-ul"></i> Load Columns
+                                    </button>
+                                </div>
+                                <div class="col-md-6">
+                                    <h6>Destination</h6>
+                                    <div class="mb-3">
+                                        <label class="form-label">Connection</label>
+                                        <input type="text" class="form-control" id="mapDestConnection" value="Destination Database" readonly>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Schema</label>
+                                        <select class="form-select" id="mapDestSchema" required>
+                                            <option value="">Select schema...</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Table</label>
+                                        <select class="form-select" id="mapDestTable" required>
+                                            <option value="">Select table...</option>
+                                        </select>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-primary" onclick="loadDestTables()">
+                                        <i class="bi bi-arrow-clockwise"></i> Load Tables
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-info" onclick="loadDestColumns()">
+                                        <i class="bi bi-list-ul"></i> Load Columns
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <hr class="my-4">
+
+                        <!-- Step 2: Column Mapping -->
+                        <div class="step-section" id="step2">
+                            <h6 class="text-primary mb-3"><i class="bi bi-2-circle"></i> Column Mapping</h6>
+                            <div class="mb-3">
+                                <button type="button" class="btn btn-sm btn-success" onclick="autoMapColumns()">
+                                    <i class="bi bi-magic"></i> Auto-Map Matching Columns
+                                </button>
+                                <button type="button" class="btn btn-sm btn-primary" onclick="addColumnMapping()">
+                                    <i class="bi bi-plus-circle"></i> Add Column Mapping
+                                </button>
+                                <button type="button" class="btn btn-sm btn-danger" onclick="clearColumnMappings()">
+                                    <i class="bi bi-trash"></i> Clear All
+                                </button>
+                            </div>
+                            <div id="columnMappingsContainer" class="border rounded p-3" style="max-height: 400px; overflow-y: auto;">
+                                <p class="text-muted">Load source and destination columns, then add mappings.</p>
+                            </div>
+                        </div>
+
+                        <hr class="my-4">
+
+                        <!-- Step 3: Options -->
+                        <div class="step-section" id="step3">
+                            <h6 class="text-primary mb-3"><i class="bi bi-3-circle"></i> Synchronization Options</h6>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Mapping ID</label>
+                                        <input type="text" class="form-control" id="mapId" placeholder="Auto-generated" readonly>
+                                        <small class="text-muted">Auto-generated based on table names</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3 form-check">
+                                        <input type="checkbox" class="form-check-input" id="mapEnabled" checked>
+                                        <label class="form-check-label" for="mapEnabled">Enable Mapping</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="mapSyncInserts" checked>
+                                        <label class="form-check-label" for="mapSyncInserts">
+                                            <i class="bi bi-plus-circle text-success"></i> Sync Inserts
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="mapSyncUpdates" checked>
+                                        <label class="form-check-label" for="mapSyncUpdates">
+                                            <i class="bi bi-pencil text-warning"></i> Sync Updates
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="mapSyncDeletes" checked>
+                                        <label class="form-check-label" for="mapSyncDeletes">
+                                            <i class="bi bi-trash text-danger"></i> Sync Deletes
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                        <i class="bi bi-x-circle"></i> Cancel
+                    </button>
+                    <button type="button" class="btn btn-success" onclick="saveMappingFromModal()">
+                        <i class="bi bi-save"></i> Create Mapping
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/static/admin.js"></script>
 </body>

@@ -31,6 +31,7 @@ class MSSQLConnection:
             f"DRIVER={{{self.config.driver}}}",
             f"SERVER={self.config.server},{self.config.port}",
             f"DATABASE={self.config.database}",
+            f"Encrypt=optional"
         ]
         
         if self.config.use_windows_auth:
@@ -43,11 +44,12 @@ class MSSQLConnection:
         
         # Additional settings for better compatibility
         parts.extend([
-            "TrustServerCertificate=yes",
-            "Connection Timeout=30",
+            "TrustServerCertificate=true",
+            "Connection Timeout=360",
         ])
-        
-        return ";".join(parts)
+        result = ";".join(parts)
+        print(result)
+        return result
     
     def connect(self) -> bool:
         """Establish database connection.

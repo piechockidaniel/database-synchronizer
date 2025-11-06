@@ -54,18 +54,41 @@ class ColumnInfo(BaseModel):
     is_primary_key: bool = False
 
 
+class AutoGenerateMode(str, Enum):
+    """Auto-generate mode for columns."""
+    NONE = "none"  # No auto-generation
+    ON_INSERT = "on_insert"  # Generate on every insert
+    ON_INIT = "on_init"  # Generate only on initial insert (once)
+
+
+class TransformationEngine(str, Enum):
+    """Transformation engine type."""
+    NONE = "none"  # No transformation
+    SQL = "sql"  # SQL Server native transformation
+    DUCKDB = "duckdb"  # DuckDB in-memory transformation
+
+
 class ColumnMapping(BaseModel):
     """Column-to-column mapping.
     
     Supports:
     - Simple 1:1 mapping (source_column -> destination_column)
     - Many-to-one mapping (source_columns list -> destination_column with transformation)
+    - Column-level controls (ignore, auto-generate, default values)
+    - DuckDB in-memory transformations
     """
     source_column: Optional[str] = None  # For single column mapping (backward compatible)
     source_columns: Optional[List[str]] = None  # For multiple columns (e.g., JSON aggregation)
     destination_column: str
     transformation: Optional[str] = None  # SQL expression for transformation (e.g., 'JSON_OBJECT', 'CONCAT')
-    transformation_type: Optional[str] = None  # Helper: 'json', 'concat', 'custom', None for direct mapping
+    transformation_type: Optional[str] = None  # Helper: 'json', 'concat', 'custom', 'duckdb', None for direct mapping
+    transformation_engine: TransformationEngine = TransformationEngine.SQL  # Engine to use for transformation
+    
+    # Column control options
+    ignore_changes: bool = False  # If True, column changes are not synced (skipped)
+    auto_generate: AutoGenerateMode = AutoGenerateMode.NONE  # Auto-generate value for destination column
+    auto_generate_expression: Optional[str] = None  # SQL expression for auto-generation (e.g., 'NEWID()', 'GETDATE()')
+    default_value: Optional[str] = None  # Default value if source is NULL or missing (can be SQL expression)
 
 
 class TableMapping(BaseModel):
@@ -80,6 +103,11 @@ class TableMapping(BaseModel):
     sync_deletes: bool = True
     sync_updates: bool = True
     sync_inserts: bool = True
+    
+    # DuckDB transformation options
+    use_duckdb_transformation: bool = False  # Enable DuckDB in-memory staging/transformation
+    duckdb_script_name: Optional[str] = None  # Name of DuckDB script file to use
+    duckdb_script_content: Optional[str] = None  # Inline DuckDB SQL script (alternative to file)
 
 
 class WorkingSet(BaseModel):

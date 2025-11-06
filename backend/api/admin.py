@@ -2,6 +2,7 @@
 from fastapi import APIRouter, HTTPException
 from typing import List, Optional
 import logging
+from pydantic import BaseModel
 from backend.models.schemas import (
     ConnectionConfig, ConnectionTestResponse, DatabaseInfo,
     TableInfo, ColumnInfo, CDCEnableRequest, CDCStatusResponse,
@@ -11,10 +12,21 @@ from backend.db.mssql_manager import MSSQLConnection, connection_pool
 from backend.db.cdc_operations import CDCOperations
 from backend.core.config_manager import config_manager
 from backend.core.mapping_manager import mapping_manager
+from backend.core.duckdb_script_manager import duckdb_script_manager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# Request/Response models for DuckDB scripts
+class ScriptValidationRequest(BaseModel):
+    content: str
+
+
+class ScriptValidationResponse(BaseModel):
+    valid: bool
+    message: str
 
 
 # Connection Management
@@ -467,6 +479,126 @@ async def delete_workset(workset_id: str):
         raise
     except Exception as e:
         logger.error(f"Error deleting working set: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# DuckDB Script Management
+
+@router.get("/duckdb/scripts/list")
+async def list_duckdb_scripts(category: Optional[str] = None):
+    """List available DuckDB transformation scripts.
+    
+    Args:
+        category: Filter by category ('template' or 'custom')
+        
+    Returns:
+        List of available scripts
+    """
+    try:
+        scripts = duckdb_script_manager.list_scripts(category)
+        return scripts
+    except Exception as e:
+        logger.error(f"Error listing DuckDB scripts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/duckdb/scripts/{script_name}")
+async def get_duckdb_script(script_name: str):
+    """Get DuckDB script content by name.
+    
+    Args:
+        script_name: Name of the script
+        
+    Returns:
+        Script content
+    """
+    try:
+        content = duckdb_script_manager.get_script(script_name)
+        if content:
+            return {"success": True, "name": script_name, "content": content}
+        else:
+            raise HTTPException(status_code=404, detail=f"Script '{script_name}' not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting DuckDB script: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/duckdb/scripts/validate")
+async def validate_duckdb_script(request: ScriptValidationRequest) -> ScriptValidationResponse:
+    """Validate DuckDB script syntax.
+    
+    Args:
+        request: Script validation request with content
+        
+    Returns:
+        Validation result
+    """
+    try:
+        is_valid, message = duckdb_script_manager.validate_script_syntax(request.content)
+        return ScriptValidationResponse(valid=is_valid, message=message)
+    except Exception as e:
+        logger.error(f"Error validating DuckDB script: {e}")
+        return ScriptValidationResponse(valid=False, message=str(e))
+
+
+@router.post("/duckdb/scripts/save")
+async def save_duckdb_script(
+    script_name: str,
+    content: str,
+    category: str = 'custom',
+    description: Optional[str] = None,
+    overwrite: bool = False
+):
+    """Save a DuckDB transformation script.
+    
+    Args:
+        script_name: Name for the script
+        content: Script content
+        category: 'template' or 'custom'
+        description: Script description
+        overwrite: Allow overwriting existing script
+        
+    Returns:
+        Success response
+    """
+    try:
+        success, message = duckdb_script_manager.save_script(
+            script_name, content, category, description, overwrite
+        )
+        if success:
+            return {"success": True, "message": message}
+        else:
+            raise HTTPException(status_code=400, detail=message)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving DuckDB script: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/duckdb/scripts/{script_name}")
+async def delete_duckdb_script(script_name: str, category: str = 'custom'):
+    """Delete a DuckDB script.
+    
+    Args:
+        script_name: Name of the script to delete
+        category: 'custom' only (templates cannot be deleted)
+        
+    Returns:
+        Success response
+    """
+    try:
+        success, message = duckdb_script_manager.delete_script(script_name, category)
+        if success:
+            return {"success": True, "message": message}
+        else:
+            raise HTTPException(status_code=400, detail=message)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting DuckDB script: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

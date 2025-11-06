@@ -48,9 +48,22 @@ class MappingManager:
                 all_source_cols.extend(cm.source_columns)
             
             # If using multiple source columns, transformation should be provided
-            if cm.source_columns and len(cm.source_columns) > 1 and not cm.transformation:
+            if cm.source_columns and len(cm.source_columns) > 1 and not cm.transformation and not cm.ignore_changes:
                 logger.warning(f"Column mapping {idx + 1}: Multiple source columns without transformation. "
                              "Consider adding a transformation (e.g., JSON_OBJECT, CONCAT)")
+            
+            # Validate ignore_changes and auto_generate combination
+            if cm.ignore_changes and cm.auto_generate and cm.auto_generate.value != 'none':
+                errors.append(f"Column mapping {idx + 1}: Cannot have both ignore_changes and auto_generate enabled")
+            
+            # If auto_generate is set, expression should be provided
+            if cm.auto_generate and cm.auto_generate.value != 'none':
+                if not cm.auto_generate_expression:
+                    errors.append(f"Column mapping {idx + 1}: auto_generate_expression required when auto_generate is enabled")
+            
+            # If ignored, transformation doesn't make sense
+            if cm.ignore_changes and cm.transformation:
+                logger.warning(f"Column mapping {idx + 1}: transformation specified but column is ignored")
         
         # Note: We now allow duplicate destination columns (many-to-one is OK with transformations)
         # but we still check for duplicate source columns being used individually

@@ -528,7 +528,7 @@ function autoMapColumns() {
 }
 
 // Add a single column mapping row with advanced options
-function addColumnMapping(preSelectedSources = [], destCol = '', transformation = '', transformationType = '') {
+function addColumnMapping(preSelectedSources = [], destCol = '', transformation = '', transformationType = '', ignoreChanges = false, autoGenerate = 'none', autoGenerateExpr = '') {
     if (sourceColumns.length === 0 || destColumns.length === 0) {
         showAlert('warning', 'Please load source and destination columns first');
         return;
@@ -576,6 +576,19 @@ function addColumnMapping(preSelectedSources = [], destCol = '', transformation 
                         }).join('')}
                     </div>
                     <small class="text-muted">Select one or more columns</small>
+                    
+                    <!-- Column Control Options -->
+                    <div class="mt-3 p-2 border rounded bg-white">
+                        <label class="form-label small fw-bold mb-2">Column Controls</label>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="ignore-changes-${mappingId}" 
+                                   ${ignoreChanges ? 'checked' : ''} onchange="updateMappingPreview(${mappingId})">
+                            <label class="form-check-label small" for="ignore-changes-${mappingId}">
+                                <i class="bi bi-x-circle text-warning"></i> Ignore Changes
+                            </label>
+                            <div><small class="text-muted">Skip syncing changes for these columns</small></div>
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="col-md-1 text-center d-flex align-items-center justify-content-center">
@@ -611,6 +624,34 @@ function addColumnMapping(preSelectedSources = [], destCol = '', transformation 
                                value="${transformation || ''}"
                                onchange="updateMappingPreview(${mappingId})">
                         <small class="text-muted">Use {col1}, {col2}, etc. as placeholders</small>
+                    </div>
+                    
+                    <!-- Auto-Generate Options -->
+                    <div class="mt-2 p-2 border rounded bg-white">
+                        <label class="form-label small fw-bold mb-2">Auto-Generate Value</label>
+                        <select class="form-select form-select-sm mb-2" id="auto-gen-mode-${mappingId}" onchange="handleAutoGenerateChange(${mappingId})">
+                            <option value="none" ${autoGenerate === 'none' ? 'selected' : ''}>No Auto-Generation</option>
+                            <option value="on_insert" ${autoGenerate === 'on_insert' ? 'selected' : ''}>On Every Insert</option>
+                            <option value="on_init" ${autoGenerate === 'on_init' ? 'selected' : ''}>On Init Only (Once)</option>
+                        </select>
+                        <div id="auto-gen-expr-div-${mappingId}" style="display: ${autoGenerate !== 'none' ? 'block' : 'none'};">
+                            <input type="text" class="form-control form-control-sm" id="auto-gen-expr-${mappingId}" 
+                                   placeholder="e.g., NEWID(), GETDATE(), CURRENT_TIMESTAMP"
+                                   value="${autoGenerateExpr || ''}"
+                                   onchange="updateMappingPreview(${mappingId})">
+                            <small class="text-muted d-block">SQL expression to generate value</small>
+                            <small class="text-muted">Common: NEWID(), GETDATE(), CURRENT_USER</small>
+                        </div>
+                    </div>
+                    
+                    <!-- Default Value -->
+                    <div class="mt-2 p-2 border rounded bg-white">
+                        <label class="form-label small fw-bold mb-2">Default Value</label>
+                        <input type="text" class="form-control form-control-sm" id="default-value-${mappingId}" 
+                               placeholder="e.g., 'UNKNOWN', 0, GETDATE()"
+                               value=""
+                               onchange="updateMappingPreview(${mappingId})">
+                        <small class="text-muted">Value to use if source is NULL or missing</small>
                     </div>
                     
                     <!-- Preview -->
@@ -649,11 +690,28 @@ function handleTransformationTypeChange(mappingId) {
     updateMappingPreview(mappingId);
 }
 
+// Handle auto-generate mode change
+function handleAutoGenerateChange(mappingId) {
+    const autoGenMode = document.getElementById(`auto-gen-mode-${mappingId}`).value;
+    const exprDiv = document.getElementById(`auto-gen-expr-div-${mappingId}`);
+    
+    // Show/hide expression field based on mode
+    if (autoGenMode !== 'none') {
+        exprDiv.style.display = 'block';
+    } else {
+        exprDiv.style.display = 'none';
+    }
+    
+    updateMappingPreview(mappingId);
+}
+
 // Update mapping preview
 function updateMappingPreview(mappingId) {
     const previewDiv = document.getElementById(`mapping-preview-${mappingId}`);
     const destCol = document.getElementById(`dest-col-${mappingId}`).value;
     const transType = document.getElementById(`trans-type-${mappingId}`).value;
+    const ignoreChanges = document.getElementById(`ignore-changes-${mappingId}`).checked;
+    const autoGenMode = document.getElementById(`auto-gen-mode-${mappingId}`).value;
     
     // Get selected source columns
     const selectedSources = [];
@@ -667,15 +725,32 @@ function updateMappingPreview(mappingId) {
     }
     
     let previewText = '';
+    let badges = [];
     
-    if (selectedSources.length === 1 && !transType) {
+    // Add control badges
+    if (ignoreChanges) {
+        badges.push('<span class="badge bg-warning">Ignore Changes</span>');
+    }
+    if (autoGenMode !== 'none') {
+        const autoGenExpr = document.getElementById(`auto-gen-expr-${mappingId}`).value;
+        const modeText = autoGenMode === 'on_insert' ? 'Auto-Gen (Insert)' : 'Auto-Gen (Init)';
+        badges.push(`<span class="badge bg-info">${modeText}</span>`);
+    }
+    
+    if (selectedSources.length === 1 && !transType && autoGenMode === 'none') {
         // Simple 1:1 mapping
         previewText = `<strong>${selectedSources[0]}</strong> → <strong>${destCol}</strong>`;
+        if (badges.length > 0) {
+            previewText += `<div class="mt-1">${badges.join(' ')}</div>`;
+        }
     } else {
-        // Complex mapping with transformation
+        // Complex mapping with transformation or controls
         let transformation = '';
         
-        if (transType === 'json') {
+        if (autoGenMode !== 'none') {
+            const autoGenExpr = document.getElementById(`auto-gen-expr-${mappingId}`).value;
+            transformation = autoGenExpr || '<i>Enter auto-generate expression</i>';
+        } else if (transType === 'json') {
             const jsonPairs = selectedSources.map(col => `'${col}': ${col}`).join(', ');
             transformation = `JSON_OBJECT(${jsonPairs})`;
         } else if (transType === 'concat') {
@@ -693,6 +768,10 @@ function updateMappingPreview(mappingId) {
             <div><strong>Destination:</strong> ${destCol}</div>
             <div><strong>Transform:</strong> <code class="small">${transformation}</code></div>
         `;
+        
+        if (badges.length > 0) {
+            previewText += `<div class="mt-2">${badges.join(' ')}</div>`;
+        }
     }
     
     previewDiv.innerHTML = previewText;
@@ -755,6 +834,10 @@ async function saveMappingFromModal() {
         
         const destCol = document.getElementById(`dest-col-${rowId}`).value;
         const transType = document.getElementById(`trans-type-${rowId}`).value;
+        const ignoreChanges = document.getElementById(`ignore-changes-${rowId}`).checked;
+        const autoGenMode = document.getElementById(`auto-gen-mode-${rowId}`).value;
+        const autoGenExpr = document.getElementById(`auto-gen-expr-${rowId}`)?.value || null;
+        const defaultValue = document.getElementById(`default-value-${rowId}`)?.value || null;
         
         // Validation
         if (selectedSources.length === 0) {
@@ -766,6 +849,13 @@ async function saveMappingFromModal() {
         if (!destCol) {
             hasError = true;
             errorMessage = `Mapping ${index + 1}: Please select a destination column`;
+            return;
+        }
+        
+        // Validate auto-generate expression if mode is set
+        if (autoGenMode !== 'none' && !autoGenExpr) {
+            hasError = true;
+            errorMessage = `Mapping ${index + 1}: Please enter an auto-generate expression`;
             return;
         }
         
@@ -805,7 +895,11 @@ async function saveMappingFromModal() {
         const colMapping = {
             destination_column: destCol,
             transformation: transformation,
-            transformation_type: transformationType
+            transformation_type: transformationType,
+            ignore_changes: ignoreChanges,
+            auto_generate: autoGenMode,
+            auto_generate_expression: autoGenExpr,
+            default_value: defaultValue
         };
         
         // Add source column(s) - backward compatible
@@ -824,6 +918,7 @@ async function saveMappingFromModal() {
     }
     
     // Build the mapping object
+    const useDuckDB = document.getElementById('mapUseDuckDB').checked;
     const mapping = {
         id: document.getElementById('mapId').value || `map_${sourceTable}_to_${destTable}_${Date.now()}`,
         source_schema: sourceSchema,
@@ -834,8 +929,24 @@ async function saveMappingFromModal() {
         enabled: document.getElementById('mapEnabled').checked,
         sync_inserts: document.getElementById('mapSyncInserts').checked,
         sync_updates: document.getElementById('mapSyncUpdates').checked,
-        sync_deletes: document.getElementById('mapSyncDeletes').checked
+        sync_deletes: document.getElementById('mapSyncDeletes').checked,
+        use_duckdb_transformation: useDuckDB
     };
+    
+    // Add DuckDB transformation details if enabled
+    if (useDuckDB) {
+        const scriptSelect = document.getElementById('mapDuckDBScript').value;
+        const scriptContent = document.getElementById('mapDuckDBScriptContent').value;
+        
+        if (scriptSelect && scriptSelect !== '__inline__') {
+            mapping.duckdb_script_name = scriptSelect;
+        } else if (scriptContent && scriptContent.trim()) {
+            mapping.duckdb_script_content = scriptContent;
+        } else {
+            showAlert('warning', 'DuckDB transformation enabled but no script provided');
+            return;
+        }
+    }
     
     try {
         const response = await fetch(`${API_BASE}/admin/mapping/create`, {
@@ -897,6 +1008,9 @@ async function viewMappingDetails(mappingId) {
             }
             
             let transformDisplay = '-';
+            let controlBadges = [];
+            
+            // Add transformation display
             if (cm.transformation_type) {
                 if (cm.transformation_type === 'json') {
                     transformDisplay = '<span class="badge bg-info">JSON Object</span>';
@@ -910,6 +1024,22 @@ async function viewMappingDetails(mappingId) {
                 }
             } else if (cm.transformation) {
                 transformDisplay = `<code class="small">${cm.transformation}</code>`;
+            }
+            
+            // Add control badges
+            if (cm.ignore_changes) {
+                controlBadges.push('<span class="badge bg-warning"><i class="bi bi-x-circle"></i> Ignore Changes</span>');
+            }
+            if (cm.auto_generate && cm.auto_generate !== 'none') {
+                const mode = cm.auto_generate === 'on_insert' ? 'On Insert' : 'On Init';
+                controlBadges.push(`<span class="badge bg-info"><i class="bi bi-lightning"></i> Auto-Gen (${mode})</span>`);
+                if (cm.auto_generate_expression) {
+                    controlBadges.push(`<br><small><code>${cm.auto_generate_expression}</code></small>`);
+                }
+            }
+            
+            if (controlBadges.length > 0) {
+                transformDisplay += '<br>' + controlBadges.join(' ');
             }
             
             detailsHtml += `
@@ -1123,6 +1253,156 @@ function showAlert(type, message) {
 // Load initial data when tabs are clicked
 document.getElementById('mappings-tab').addEventListener('click', loadMappings);
 document.getElementById('worksets-tab').addEventListener('click', loadWorksets);
+
+// ==================== DUCKDB TRANSFORMATION FUNCTIONS ====================
+
+function toggleDuckDBOptions() {
+    const checkbox = document.getElementById('mapUseDuckDB');
+    const options = document.getElementById('duckdbOptions');
+    
+    if (checkbox.checked) {
+        options.style.display = 'block';
+        loadAvailableDuckDBScripts();
+    } else {
+        options.style.display = 'none';
+    }
+}
+
+async function loadAvailableDuckDBScripts() {
+    const select = document.getElementById('mapDuckDBScript');
+    
+    try {
+        const response = await fetch(`${API_BASE}/admin/duckdb/scripts/list`);
+        const scripts = await response.json();
+        
+        // Keep the inline option
+        select.innerHTML = '<option value="">Select script...</option><option value="__inline__">Inline Script (Enter Below)</option>';
+        
+        // Add templates
+        const templates = scripts.filter(s => s.category === 'template');
+        if (templates.length > 0) {
+            const templateGroup = document.createElement('optgroup');
+            templateGroup.label = 'Templates';
+            templates.forEach(script => {
+                const option = document.createElement('option');
+                option.value = script.name;
+                option.textContent = `${script.name} - ${script.description}`;
+                option.dataset.category = 'template';
+                templateGroup.appendChild(option);
+            });
+            select.appendChild(templateGroup);
+        }
+        
+        // Add custom scripts
+        const customs = scripts.filter(s => s.category === 'custom');
+        if (customs.length > 0) {
+            const customGroup = document.createElement('optgroup');
+            customGroup.label = 'Custom Scripts';
+            customs.forEach(script => {
+                const option = document.createElement('option');
+                option.value = script.name;
+                option.textContent = `${script.name} - ${script.description}`;
+                option.dataset.category = 'custom';
+                customGroup.appendChild(option);
+            });
+            select.appendChild(customGroup);
+        }
+        
+    } catch (error) {
+        console.error('Error loading DuckDB scripts:', error);
+        showAlert('warning', 'Could not load DuckDB scripts list');
+    }
+}
+
+async function loadDuckDBScriptPreview() {
+    const select = document.getElementById('mapDuckDBScript');
+    const textarea = document.getElementById('mapDuckDBScriptContent');
+    const scriptName = select.value;
+    
+    if (!scriptName || scriptName === '__inline__') {
+        // Clear for inline entry
+        if (scriptName === '__inline__') {
+            textarea.value = '';
+            textarea.readOnly = false;
+            textarea.focus();
+        }
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/admin/duckdb/scripts/${scriptName}`);
+        const result = await response.json();
+        
+        if (result.success && result.content) {
+            textarea.value = result.content;
+            textarea.readOnly = true; // Make read-only for loaded scripts
+            showAlert('success', `Loaded script: ${scriptName}`);
+        } else {
+            showAlert('danger', 'Could not load script content');
+        }
+    } catch (error) {
+        console.error('Error loading script content:', error);
+        showAlert('danger', `Error loading script: ${error.message}`);
+    }
+}
+
+async function uploadDuckDBScript() {
+    const fileInput = document.getElementById('mapDuckDBScriptFile');
+    const textarea = document.getElementById('mapDuckDBScriptContent');
+    
+    if (!fileInput.files || fileInput.files.length === 0) {
+        showAlert('warning', 'Please select a file to upload');
+        return;
+    }
+    
+    const file = fileInput.files[0];
+    
+    try {
+        const content = await file.text();
+        textarea.value = content;
+        textarea.readOnly = false;
+        
+        // Set select to inline
+        document.getElementById('mapDuckDBScript').value = '__inline__';
+        
+        showAlert('success', `Loaded script from file: ${file.name}`);
+    } catch (error) {
+        console.error('Error reading file:', error);
+        showAlert('danger', `Error reading file: ${error.message}`);
+    }
+}
+
+async function validateDuckDBScript() {
+    const content = document.getElementById('mapDuckDBScriptContent').value;
+    
+    if (!content || !content.trim()) {
+        showAlert('warning', 'Please enter a script to validate');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/admin/duckdb/scripts/validate`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({content: content})
+        });
+        
+        const result = await response.json();
+        
+        if (result.valid) {
+            showAlert('success', 'Script validation passed! ' + result.message);
+        } else {
+            showAlert('danger', 'Script validation failed: ' + result.message);
+        }
+    } catch (error) {
+        console.error('Error validating script:', error);
+        showAlert('danger', `Error validating script: ${error.message}`);
+    }
+}
+
+function viewDuckDBScripts() {
+    showAlert('info', 'DuckDB scripts are located in the duckdb_scripts/ directory. Templates in duckdb_scripts/templates/, custom scripts in duckdb_scripts/custom/.');
+}
 
 
 

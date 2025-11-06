@@ -241,6 +241,85 @@ function showCreateMappingModal() {
     // Show the modal
     const modal = new bootstrap.Modal(document.getElementById('createMappingModal'));
     modal.show();
+    
+    // Auto-load databases when modal opens
+    loadSourceDatabases();
+    loadDestDatabases();
+}
+
+// Load databases from source connection
+async function loadSourceDatabases() {
+    const dbSelect = document.getElementById('mapSourceDatabase');
+    
+    try {
+        dbSelect.innerHTML = '<option value="">Loading databases...</option>';
+        
+        const response = await fetch(`${API_BASE}/admin/scan/databases?connection_type=source`);
+        const databases = await response.json();
+        
+        if (databases && databases.length > 0) {
+            dbSelect.innerHTML = '<option value="">Select database...</option>';
+            databases.forEach(db => {
+                const option = document.createElement('option');
+                option.value = db.name;
+                option.textContent = db.name + (db.cdc_enabled ? ' (CDC Enabled)' : '');
+                // If this is the configured database, select it
+                option.selected = db.cdc_enabled; // Select CDC-enabled by default
+                dbSelect.appendChild(option);
+            });
+            
+            // If a database is selected, show it
+            if (dbSelect.value) {
+                showAlert('success', `Source databases loaded. Using: ${dbSelect.value}`);
+            }
+        } else {
+            dbSelect.innerHTML = '<option value="">No databases found</option>';
+        }
+    } catch (error) {
+        dbSelect.innerHTML = '<option value="">Error loading databases</option>';
+        showAlert('danger', `Error loading source databases: ${error.message}`);
+    }
+}
+
+// Load databases from destination connection
+async function loadDestDatabases() {
+    const dbSelect = document.getElementById('mapDestDatabase');
+    
+    try {
+        dbSelect.innerHTML = '<option value="">Loading databases...</option>';
+        
+        const response = await fetch(`${API_BASE}/admin/scan/databases?connection_type=destination`);
+        const databases = await response.json();
+        
+        if (databases && databases.length > 0) {
+            dbSelect.innerHTML = '<option value="">Select database...</option>';
+            databases.forEach(db => {
+                const option = document.createElement('option');
+                option.value = db.name;
+                option.textContent = db.name + (db.cdc_enabled ? ' (CDC Enabled)' : '');
+                dbSelect.appendChild(option);
+            });
+            
+            // Auto-select the first database or CDC-enabled one
+            if (databases.length === 1) {
+                dbSelect.value = databases[0].name;
+            } else {
+                const cdcDb = databases.find(db => db.cdc_enabled);
+                if (cdcDb) {
+                    dbSelect.value = cdcDb.name;
+                }
+            }
+            
+            if (dbSelect.value) {
+                showAlert('success', `Destination databases loaded. Using: ${dbSelect.value}`);
+            }
+        } else {
+            dbSelect.innerHTML = '<option value="">No databases found</option>';
+        }
+    } catch (error) {
+        dbSelect.innerHTML = '<option value="">Error loading databases</option>';
+        showAlert('danger', `Error loading destination databases: ${error.message}`);
+    }
 }
 
 // Load tables from source database

@@ -267,6 +267,18 @@
                                         <input type="text" class="form-control" id="mapSourceConnection" value="Source Database" readonly>
                                     </div>
                                     <div class="mb-3">
+                                        <label class="form-label">Database</label>
+                                        <div class="input-group">
+                                            <select class="form-select" id="mapSourceDatabase" required>
+                                                <option value="">Select database...</option>
+                                            </select>
+                                            <button type="button" class="btn btn-outline-secondary" onclick="loadSourceDatabases()" title="Load databases">
+                                                <i class="bi bi-arrow-clockwise"></i>
+                                            </button>
+                                        </div>
+                                        <small class="text-muted">Database from connection config</small>
+                                    </div>
+                                    <div class="mb-3">
                                         <label class="form-label">Schema</label>
                                         <select class="form-select" id="mapSourceSchema" required>
                                             <option value="">Select schema...</option>
@@ -290,6 +302,18 @@
                                     <div class="mb-3">
                                         <label class="form-label">Connection</label>
                                         <input type="text" class="form-control" id="mapDestConnection" value="Destination Database" readonly>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Database</label>
+                                        <div class="input-group">
+                                            <select class="form-select" id="mapDestDatabase" required>
+                                                <option value="">Select database...</option>
+                                            </select>
+                                            <button type="button" class="btn btn-outline-secondary" onclick="loadDestDatabases()" title="Load databases">
+                                                <i class="bi bi-arrow-clockwise"></i>
+                                            </button>
+                                        </div>
+                                        <small class="text-muted">Database from connection config</small>
                                     </div>
                                     <div class="mb-3">
                                         <label class="form-label">Schema</label>

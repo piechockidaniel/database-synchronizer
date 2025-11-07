@@ -13,6 +13,12 @@ from backend.db.cdc_operations import CDCOperations
 from backend.core.config_manager import config_manager
 from backend.core.mapping_manager import mapping_manager
 from backend.core.duckdb_script_manager import duckdb_script_manager
+from backend.core.workflow_manager import workflow_manager
+from backend.core.workflow_converter import workflow_converter
+from backend.models.workflow_schemas import (
+    VisualWorkflow, WorkflowListItem, WorkflowValidationResult,
+    WorkflowCompileResult
+)
 
 logger = logging.getLogger(__name__)
 
@@ -599,6 +605,187 @@ async def delete_duckdb_script(script_name: str, category: str = 'custom'):
         raise
     except Exception as e:
         logger.error(f"Error deleting DuckDB script: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Visual Workflow Management
+
+@router.get("/workflow/visual/list")
+async def list_visual_workflows() -> List[WorkflowListItem]:
+    """List all visual workflows.
+    
+    Returns:
+        List of workflow summaries
+    """
+    try:
+        return workflow_manager.list_workflows()
+    except Exception as e:
+        logger.error(f"Error listing workflows: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/workflow/visual/{workflow_id}")
+async def get_visual_workflow(workflow_id: str) -> VisualWorkflow:
+    """Get a visual workflow by ID.
+    
+    Args:
+        workflow_id: Workflow ID
+        
+    Returns:
+        Visual workflow
+    """
+    try:
+        workflow = workflow_manager.get_workflow(workflow_id)
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        return workflow
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting workflow: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/workflow/visual/create")
+async def create_visual_workflow(workflow: VisualWorkflow):
+    """Create a new visual workflow.
+    
+    Args:
+        workflow: Visual workflow to create
+        
+    Returns:
+        Success response
+    """
+    try:
+        success, message = workflow_manager.create_workflow(workflow)
+        if success:
+            return {"success": True, "message": message, "workflow_id": workflow.id}
+        else:
+            raise HTTPException(status_code=400, detail=message)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating workflow: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/workflow/visual/update")
+async def update_visual_workflow(workflow: VisualWorkflow):
+    """Update an existing visual workflow.
+    
+    Args:
+        workflow: Updated visual workflow
+        
+    Returns:
+        Success response
+    """
+    try:
+        success, message = workflow_manager.update_workflow(workflow)
+        if success:
+            return {"success": True, "message": message}
+        else:
+            raise HTTPException(status_code=400, detail=message)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating workflow: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/workflow/visual/{workflow_id}")
+async def delete_visual_workflow(workflow_id: str):
+    """Delete a visual workflow.
+    
+    Args:
+        workflow_id: Workflow ID to delete
+        
+    Returns:
+        Success response
+    """
+    try:
+        success, message = workflow_manager.delete_workflow(workflow_id)
+        if success:
+            return {"success": True, "message": message}
+        else:
+            raise HTTPException(status_code=404, detail=message)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting workflow: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/workflow/validate/{workflow_id}")
+async def validate_workflow(workflow_id: str) -> WorkflowValidationResult:
+    """Validate a visual workflow.
+    
+    Args:
+        workflow_id: Workflow ID to validate
+        
+    Returns:
+        Validation result
+    """
+    try:
+        workflow = workflow_manager.get_workflow(workflow_id)
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        
+        return workflow_manager.validate_workflow(workflow)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error validating workflow: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/workflow/compile/{workflow_id}")
+async def compile_workflow_to_mapping(workflow_id: str) -> WorkflowCompileResult:
+    """Compile visual workflow into TableMapping.
+    
+    Args:
+        workflow_id: Workflow ID to compile
+        
+    Returns:
+        Compilation result with mapping ID
+    """
+    try:
+        workflow = workflow_manager.get_workflow(workflow_id)
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        
+        # Compile workflow
+        success, table_mapping, errors = workflow_converter.compile_workflow(workflow)
+        
+        if not success:
+            return WorkflowCompileResult(
+                success=False,
+                message="Compilation failed",
+                errors=errors
+            )
+        
+        # Save the compiled mapping
+        mapping_success, mapping_message = mapping_manager.create_mapping(table_mapping)
+        
+        if mapping_success:
+            # Associate compiled mapping with workflow
+            workflow_manager.set_compiled_mapping(workflow_id, table_mapping.id)
+            
+            return WorkflowCompileResult(
+                success=True,
+                mapping_id=table_mapping.id,
+                message=f"Workflow compiled successfully to mapping '{table_mapping.id}'"
+            )
+        else:
+            return WorkflowCompileResult(
+                success=False,
+                message=f"Workflow compiled but mapping creation failed: {mapping_message}",
+                errors=[mapping_message]
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error compiling workflow: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

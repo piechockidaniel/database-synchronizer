@@ -919,6 +919,7 @@ async function saveMappingFromModal() {
     
     // Build the mapping object
     const useDuckDB = document.getElementById('mapUseDuckDB').checked;
+    const performSnapshot = document.getElementById('mapPerformSnapshot').checked;
     const mapping = {
         id: document.getElementById('mapId').value || `map_${sourceTable}_to_${destTable}_${Date.now()}`,
         source_schema: sourceSchema,
@@ -930,7 +931,8 @@ async function saveMappingFromModal() {
         sync_inserts: document.getElementById('mapSyncInserts').checked,
         sync_updates: document.getElementById('mapSyncUpdates').checked,
         sync_deletes: document.getElementById('mapSyncDeletes').checked,
-        use_duckdb_transformation: useDuckDB
+        use_duckdb_transformation: useDuckDB,
+        perform_initial_snapshot: performSnapshot
     };
     
     // Add DuckDB transformation details if enabled
@@ -1065,6 +1067,15 @@ async function viewMappingDetails(mappingId) {
                 </div>
                 <div class="col-md-4">
                     <strong>Sync Deletes:</strong> ${mapping.sync_deletes ? '✓' : '✗'}
+                </div>
+            </div>
+            <hr>
+            <div class="row">
+                <div class="col-md-6">
+                    <strong>Initial Snapshot:</strong> ${mapping.perform_initial_snapshot ? '<span class="badge bg-success">Enabled</span>' : '<span class="badge bg-secondary">Disabled</span>'}
+                </div>
+                <div class="col-md-6">
+                    ${mapping.snapshot_completed_at ? `<strong>Completed:</strong> ${new Date(mapping.snapshot_completed_at).toLocaleString()}` : '<span class="text-muted">Not completed</span>'}
                 </div>
             </div>
         `;
@@ -1696,6 +1707,84 @@ async function validateDuckDBScript() {
         console.error('Error validating script:', error);
         showAlert('danger', `Error validating script: ${error.message}`);
     }
+}
+
+// Load and display latency statistics
+async function loadLatencyStats(mappingId = null, hours = 24) {
+    try {
+        const url = `${API_BASE}/operations/latency/stats${mappingId ? `?mapping_id=${mappingId}&hours=${hours}` : `?hours=${hours}`}`;
+        const response = await fetch(url);
+        const stats = await response.json();
+        
+        if (stats.error) {
+            return null;
+        }
+        
+        return stats;
+    } catch (error) {
+        console.error('Error loading latency stats:', error);
+        return null;
+    }
+}
+
+// Display latency statistics in a card
+function displayLatencyStats(stats, containerId) {
+    const container = document.getElementById(containerId);
+    if (!container || !stats || stats.total_records === 0) {
+        if (container) {
+            container.innerHTML = '<div class="alert alert-info">No latency data available yet</div>';
+        }
+        return;
+    }
+    
+    const html = `
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-speedometer2"></i> Latency Statistics (Last ${stats.hours} hours)</h6>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="h4 text-primary">${stats.total_records.toLocaleString()}</div>
+                            <small class="text-muted">Total Records</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="h4 text-success">${stats.avg_latency_ms} ms</div>
+                            <small class="text-muted">Average Latency</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="h4 text-info">${stats.median_latency_ms} ms</div>
+                            <small class="text-muted">Median Latency</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="h4 text-warning">${stats.p95_latency_ms} ms</div>
+                            <small class="text-muted">95th Percentile</small>
+                        </div>
+                    </div>
+                </div>
+                ${stats.min_latency_ms !== null ? `
+                <hr>
+                <div class="row">
+                    <div class="col-md-6">
+                        <strong>Min Latency:</strong> ${stats.min_latency_ms} ms
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Max Latency:</strong> ${stats.max_latency_ms} ms
+                    </div>
+                </div>
+                ` : ''}
+            </div>
+        </div>
+    `;
+    
+    container.innerHTML = html;
 }
 
 function viewDuckDBScripts() {

@@ -1,7 +1,7 @@
 """Operations API endpoints for CDC monitoring control."""
 from fastapi import APIRouter, HTTPException
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from backend.models.schemas import SyncStatus, OperationStatus
 from backend.core.cdc_monitor import cdc_monitor
 from backend.core.sync_engine import sync_engine
@@ -9,6 +9,8 @@ from backend.core.history_manager import history_manager
 from backend.core.config_manager import config_manager
 from backend.db.mssql_manager import connection_pool
 from backend.core.duckdb_processor import duckdb_processor
+from backend.core.snapshot_service import snapshot_service
+from backend.core.latency_monitor import latency_monitor
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -38,6 +40,37 @@ async def start_synchronization():
         if not mappings:
             raise HTTPException(status_code=400, detail="No table mappings configured in working set")
         
+        # Perform initial snapshots for mappings that require it
+        snapshot_results = []
+        for mapping in mappings:
+            if mapping.perform_initial_snapshot and not mapping.snapshot_completed_at:
+                logger.info(f"Performing initial snapshot for mapping: {mapping.id}")
+                success, message, rows_processed = snapshot_service.perform_snapshot(
+                    mapping,
+                    source_conn,
+                    dest_conn,
+                    duckdb_processor
+                )
+                
+                if success:
+                    # Update mapping to mark snapshot as completed
+                    mapping.snapshot_completed_at = datetime.now()
+                    config_manager.update_mapping(mapping)
+                    snapshot_results.append({
+                        "mapping_id": mapping.id,
+                        "success": True,
+                        "rows_processed": rows_processed,
+                        "message": message
+                    })
+                else:
+                    snapshot_results.append({
+                        "mapping_id": mapping.id,
+                        "success": False,
+                        "rows_processed": 0,
+                        "message": message
+                    })
+                    logger.warning(f"Snapshot failed for mapping {mapping.id}: {message}")
+        
         # Configure CDC monitor
         cdc_monitor.set_connection(source_conn)
         cdc_monitor.set_mappings(mappings)
@@ -60,11 +93,16 @@ async def start_synchronization():
         
         logger.info(f"Started synchronization for working set: {active_workset.name}")
         
-        return {
+        response = {
             "success": True,
             "message": f"Synchronization started for working set: {active_workset.name}",
             "workset_id": active_workset.id
         }
+        
+        if snapshot_results:
+            response["snapshot_results"] = snapshot_results
+        
+        return response
         
     except HTTPException:
         raise
@@ -197,13 +235,78 @@ async def get_statistics() -> Dict[str, Any]:
         sync_stats = sync_engine.get_statistics()
         monitor_status = cdc_monitor.get_status()
         
+        # Get latency statistics if destination connection is available
+        latency_stats = {}
+        dest_conn = connection_pool.get_destination()
+        if dest_conn:
+            try:
+                latency_stats = latency_monitor.get_latency_statistics(dest_conn)
+            except Exception as e:
+                logger.warning(f"Could not get latency statistics: {e}")
+        
         return {
             **sync_stats,
-            'monitor_status': monitor_status
+            'monitor_status': monitor_status,
+            'latency_stats': latency_stats
         }
         
     except Exception as e:
         logger.error(f"Error getting statistics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/latency/stats")
+async def get_latency_statistics(mapping_id: Optional[str] = None, hours: int = 24) -> Dict[str, Any]:
+    """Get latency statistics.
+    
+    Args:
+        mapping_id: Optional mapping ID to filter by
+        hours: Number of hours to look back (default: 24)
+    
+    Returns:
+        Latency statistics dictionary
+    """
+    try:
+        dest_conn = connection_pool.get_destination()
+        if not dest_conn:
+            raise HTTPException(status_code=400, detail="No destination connection available")
+        
+        stats = latency_monitor.get_latency_statistics(dest_conn, mapping_id=mapping_id, hours=hours)
+        return stats
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting latency statistics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/latency/records")
+async def get_latency_records(mapping_id: Optional[str] = None, limit: int = 100) -> Dict[str, Any]:
+    """Get recent latency records.
+    
+    Args:
+        mapping_id: Optional mapping ID to filter by
+        limit: Maximum number of records to return (default: 100)
+    
+    Returns:
+        Dictionary with latency records
+    """
+    try:
+        dest_conn = connection_pool.get_destination()
+        if not dest_conn:
+            raise HTTPException(status_code=400, detail="No destination connection available")
+        
+        records = latency_monitor.get_recent_latency_records(dest_conn, mapping_id=mapping_id, limit=limit)
+        return {
+            "records": records,
+            "count": len(records)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting latency records: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

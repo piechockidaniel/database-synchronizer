@@ -155,6 +155,56 @@ class MSSQLConnection:
                 cursor.execute(query)
             return cursor.rowcount
     
+    def bulk_insert(
+        self,
+        schema: str,
+        table: str,
+        data: List[Dict[str, Any]],
+        batch_size: int = 1000
+    ) -> int:
+        """Bulk insert data into a table using fast_executemany for performance.
+        
+        Args:
+            schema: Schema name
+            table: Table name
+            data: List of dictionaries containing row data
+            batch_size: Number of rows to insert per batch
+            
+        Returns:
+            Total number of rows inserted
+        """
+        if not data:
+            return 0
+        
+        try:
+            # Get column names from first row
+            columns = list(data[0].keys())
+            column_str = ', '.join([f"[{col}]" for col in columns])
+            placeholders = ', '.join(['?' for _ in columns])
+            
+            insert_sql = f"INSERT INTO [{schema}].[{table}] ({column_str}) VALUES ({placeholders})"
+            
+            # Prepare data as list of tuples
+            values_list = [tuple(row[col] for col in columns) for row in data]
+            
+            # Use fast_executemany for better performance
+            with self.get_cursor() as cursor:
+                # Enable fast_executemany (pyodbc feature for bulk inserts)
+                cursor.fast_executemany = True
+                
+                # Insert in batches
+                total_inserted = 0
+                for i in range(0, len(values_list), batch_size):
+                    batch = values_list[i:i + batch_size]
+                    cursor.executemany(insert_sql, batch)
+                    total_inserted += len(batch)
+                
+                return total_inserted
+                
+        except Exception as e:
+            logger.error(f"Error in bulk insert: {e}")
+            raise
+    
     def get_server_version(self) -> str:
         """Get SQL Server version.
         

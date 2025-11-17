@@ -7,6 +7,7 @@ from backend.db.mssql_manager import MSSQLConnection
 from backend.models.schemas import CDCEvent, CDCOperation, TableMapping
 from backend.core.duckdb_processor import DuckDBProcessor
 from backend.core.cdc_monitor import cdc_monitor
+from backend.core.latency_monitor import latency_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,24 @@ class SyncEngine:
         
         return pk_columns
     
+    @staticmethod
+    def _extract_record_id(data: Dict[str, Any], mapping: TableMapping) -> Optional[str]:
+        """Extract record identifier from transformed data.
+        
+        Args:
+            data: Transformed data row
+            mapping: Table mapping
+            
+        Returns:
+            Record ID string or None
+        """
+        pk_columns = SyncEngine._get_primary_key_columns(mapping)
+        if pk_columns:
+            # Combine multiple PK columns if composite key
+            pk_values = [str(data.get(pk, '')) for pk in pk_columns if pk in data]
+            return '|'.join(pk_values) if pk_values else None
+        return None
+    
     async def _apply_change(self, mapping: TableMapping, event: CDCEvent) -> tuple[bool, Optional[str]]:
         """Apply a single CDC change to destination.
         
@@ -125,6 +144,9 @@ class SyncEngine:
             
             transformed_row = transformed_data[0]
             
+            # Record start time for latency tracking
+            destination_start_time = datetime.now()
+            
             # Generate and execute SQL based on operation type
             if event.operation == CDCOperation.INSERT and mapping.sync_inserts:
                 sql, params = self.duckdb.generate_insert_sql(
@@ -133,6 +155,17 @@ class SyncEngine:
                     transformed_row
                 )
                 self.destination_connection.execute_non_query(sql, params)
+                
+                # Record latency for INSERT operations
+                source_change_time = event.source_change_time or event.timestamp
+                source_record_id = self._extract_record_id(transformed_row, mapping)
+                latency_monitor.record_latency(
+                    self.destination_connection,
+                    mapping,
+                    event,
+                    source_change_time=source_change_time,
+                    source_record_id=source_record_id
+                )
                 
             elif event.operation == CDCOperation.UPDATE and mapping.sync_updates:
                 pk_columns = self._get_primary_key_columns(mapping)
@@ -143,6 +176,17 @@ class SyncEngine:
                     pk_columns
                 )
                 self.destination_connection.execute_non_query(sql, params)
+                
+                # Record latency for UPDATE operations
+                source_change_time = event.source_change_time or event.timestamp
+                source_record_id = self._extract_record_id(transformed_row, mapping)
+                latency_monitor.record_latency(
+                    self.destination_connection,
+                    mapping,
+                    event,
+                    source_change_time=source_change_time,
+                    source_record_id=source_record_id
+                )
                 
             elif event.operation == CDCOperation.DELETE and mapping.sync_deletes:
                 pk_columns = self._get_primary_key_columns(mapping)
@@ -273,6 +317,8 @@ class SyncEngine:
 
 # Global sync engine instance
 sync_engine = SyncEngine()
+
+
 
 
 

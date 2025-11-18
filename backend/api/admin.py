@@ -466,6 +466,29 @@ async def activate_workset(workset_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/workset/active")
+async def get_active_workset():
+    """Get active working set configuration.
+    
+    Returns:
+        Active working set or None
+    """
+    try:
+        active_workset = config_manager.get_active_workset()
+        if not active_workset:
+            return None
+        
+        return {
+            "id": active_workset.id,
+            "name": active_workset.name,
+            "source_connection": active_workset.source_connection.dict(),
+            "destination_connection": active_workset.destination_connection.dict()
+        }
+    except Exception as e:
+        logger.error(f"Error getting active workset: {e}")
+        return None
+
+
 @router.delete("/workset/{workset_id}")
 async def delete_workset(workset_id: str):
     """Delete a working set.

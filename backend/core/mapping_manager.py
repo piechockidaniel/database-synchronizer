@@ -40,7 +40,7 @@ class MappingManager:
             # Cannot have both
             if cm.source_column and cm.source_columns:
                 errors.append(f"Column mapping {idx + 1}: cannot have both source_column and source_columns")
-            
+        
             # Collect all source columns for duplicate check
             if cm.source_column:
                 all_source_cols.append(cm.source_column)

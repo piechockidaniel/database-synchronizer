@@ -14,6 +14,19 @@ const WorkflowDesigner = (function() {
     let zoomLevel = 1.0;
     let isDragging = false;
     let draggedNodeType = null;
+    let connectionConfigs = {
+        source: null,
+        destination: null
+    };
+    let databasesCache = {
+        source: [],
+        destination: []
+    };
+    let tablesCache = {
+        source: {},
+        destination: {}
+    };
+    let columnsCache = {};
     
     // Node type definitions
     const NODE_TYPES = {
@@ -340,12 +353,101 @@ const WorkflowDesigner = (function() {
     }
     
     // Initialize designer when tab is shown
-    function initDesigner() {
+    async function initDesigner() {
         if (!jsPlumbInstance) {
             initJsPlumb();
         }
         setupDragAndDrop();
         setupCanvasEvents();
+        await loadConnectionConfigs();
+    }
+    
+    // Load connection configurations from active workset
+    async function loadConnectionConfigs() {
+        try {
+            const response = await fetch('/api/admin/workset/active');
+            const workset = await response.json();
+            
+            if (workset && workset.source_connection && workset.destination_connection) {
+                connectionConfigs.source = workset.source_connection;
+                connectionConfigs.destination = workset.destination_connection;
+                console.log('Loaded connection configs from active workset');
+            } else {
+                console.warn('No active workset found. Connection configs not available.');
+            }
+        } catch (error) {
+            console.error('Error loading connection configs:', error);
+        }
+    }
+    
+    // Load databases for a connection type
+    async function loadDatabases(connectionType) {
+        const cacheKey = connectionType === 'source' ? 'source' : 'destination';
+        
+        if (databasesCache[cacheKey].length > 0) {
+            return databasesCache[cacheKey];
+        }
+        
+        try {
+            const response = await fetch(`/api/admin/scan/databases?connection_type=${connectionType}`);
+            const databases = await response.json();
+            
+            if (databases && Array.isArray(databases)) {
+                databasesCache[cacheKey] = databases;
+                return databases;
+            }
+        } catch (error) {
+            console.error(`Error loading ${connectionType} databases:`, error);
+        }
+        
+        return [];
+    }
+    
+    // Load tables for a connection type and database
+    async function loadTables(connectionType, database) {
+        const cacheKey = connectionType === 'source' ? 'source' : 'destination';
+        const fullKey = `${database}`;
+        
+        if (tablesCache[cacheKey][fullKey]) {
+            return tablesCache[cacheKey][fullKey];
+        }
+        
+        try {
+            const response = await fetch(`/api/admin/scan/tables?connection_type=${connectionType}&database=${encodeURIComponent(database)}`);
+            const tables = await response.json();
+            
+            if (tables && Array.isArray(tables)) {
+                tablesCache[cacheKey][fullKey] = tables;
+                return tables;
+            }
+        } catch (error) {
+            console.error(`Error loading ${connectionType} tables:`, error);
+        }
+        
+        return [];
+    }
+    
+    // Load columns for a connection type, schema, and table
+    async function loadColumns(connectionType, schema, table) {
+        const cacheKey = `${connectionType}_${schema}_${table}`;
+        
+        if (columnsCache[cacheKey]) {
+            return columnsCache[cacheKey];
+        }
+        
+        try {
+            const response = await fetch(`/api/admin/scan/columns?connection_type=${connectionType}&schema_name=${encodeURIComponent(schema)}&table_name=${encodeURIComponent(table)}`);
+            const columns = await response.json();
+            
+            if (columns && Array.isArray(columns)) {
+                columnsCache[cacheKey] = columns;
+                return columns;
+            }
+        } catch (error) {
+            console.error(`Error loading columns:`, error);
+        }
+        
+        return [];
     }
     
     // Setup drag and drop from palette
@@ -515,7 +617,7 @@ const WorkflowDesigner = (function() {
     }
     
     // Show node properties panel
-    function showNodeProperties(nodeId) {
+    async function showNodeProperties(nodeId) {
         const node = nodes[nodeId];
         if (!node) return;
         
@@ -539,85 +641,354 @@ const WorkflowDesigner = (function() {
                 </div>
         `;
         
-        // Add type-specific configuration fields
-        html += getNodeConfigForm(nodeId, node.type, node.config);
+        // Add type-specific configuration fields (async)
+        html += await getNodeConfigForm(nodeId, node.type, node.config);
         
         html += '</div>';
         panel.innerHTML = html;
     }
     
+    // Find upstream database node
+    function findUpstreamDatabaseNode(nodeId, connectionType) {
+        const node = nodes[nodeId];
+        if (!node) return null;
+        
+        // Check if this node itself is a database node
+        if ((connectionType === 'source' && node.type === 'source_database') ||
+            (connectionType === 'destination' && node.type === 'dest_database')) {
+            return node;
+        }
+        
+        // Find upstream database node through edges
+        const upstreamEdge = edges.find(e => e.target === nodeId);
+        if (upstreamEdge) {
+            const upstreamNode = nodes[upstreamEdge.source];
+            if (upstreamNode) {
+                if ((connectionType === 'source' && upstreamNode.type === 'source_database') ||
+                    (connectionType === 'destination' && upstreamNode.type === 'dest_database')) {
+                    return upstreamNode;
+                }
+                // Recursively search upstream
+                return findUpstreamDatabaseNode(upstreamNode.id, connectionType);
+            }
+        }
+        
+        return null;
+    }
+    
+    // Find upstream table node
+    function findUpstreamTableNode(nodeId) {
+        const node = nodes[nodeId];
+        if (!node) return null;
+        
+        // Check if this node itself is a table node
+        if (node.type === 'source_table' || node.type === 'dest_table') {
+            return node;
+        }
+        
+        // Find upstream table node through edges
+        const upstreamEdge = edges.find(e => e.target === nodeId);
+        if (upstreamEdge) {
+            const upstreamNode = nodes[upstreamEdge.source];
+            if (upstreamNode) {
+                if (upstreamNode.type === 'source_table' || upstreamNode.type === 'dest_table') {
+                    return upstreamNode;
+                }
+                // Recursively search upstream
+                return findUpstreamTableNode(upstreamNode.id);
+            }
+        }
+        
+        return null;
+    }
+    
     // Generate configuration form for node type
-    function getNodeConfigForm(nodeId, nodeType, config) {
+    async function getNodeConfigForm(nodeId, nodeType, config) {
         let html = '';
         
         switch(nodeType) {
             case 'source_database':
-            case 'dest_database':
-                html += `
-                    <div class="property-group">
-                        <label class="property-label">Server</label>
-                        <input type="text" class="form-control form-control-sm" 
-                               value="${config.server || ''}" 
-                               onchange="WorkflowDesigner.updateNodeConfig('${nodeId}', 'server', this.value)">
-                    </div>
-                    <div class="property-group">
-                        <label class="property-label">Database</label>
-                        <input type="text" class="form-control form-control-sm" 
-                               value="${config.database || ''}" 
-                               onchange="WorkflowDesigner.updateNodeConfig('${nodeId}', 'database', this.value)">
-                    </div>
-                    <div class="property-group">
-                        <label class="property-label">Port</label>
-                        <input type="number" class="form-control form-control-sm" 
-                               value="${config.port || 1433}" 
-                               onchange="WorkflowDesigner.updateNodeConfig('${nodeId}', 'port', parseInt(this.value))">
-                    </div>
-                    <div class="property-group">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" 
-                                   id="ws-auth-${nodeId}" 
-                                   ${config.use_windows_auth ? 'checked' : ''}
-                                   onchange="WorkflowDesigner.updateNodeConfig('${nodeId}', 'use_windows_auth', this.checked)">
-                            <label class="form-check-label small">Windows Auth</label>
+                {
+                    const connConfig = connectionConfigs.source;
+                    const serverName = connConfig ? `${connConfig.server}:${connConfig.port || 1433}` : 'Not configured';
+                    const databases = await loadDatabases('source');
+                    
+                    html += `
+                        <div class="property-group">
+                            <label class="property-label">Server</label>
+                            <input type="text" class="form-control form-control-sm" 
+                                   value="${serverName}" 
+                                   readonly
+                                   style="background-color: #e9ecef; cursor: not-allowed;"
+                                   title="Server name is taken from active working set configuration">
+                            <small class="text-muted">From active working set (read-only)</small>
                         </div>
-                    </div>
-                `;
+                        <div class="property-group">
+                            <label class="property-label">Database</label>
+                            <select class="form-select form-select-sm" 
+                                    id="db-select-${nodeId}"
+                                    onchange="WorkflowDesigner.updateNodeConfig('${nodeId}', 'database', this.value); WorkflowDesigner.loadTablesForNode('${nodeId}', 'source', this.value)">
+                                <option value="">Select database...</option>
+                                ${databases.map(db => `
+                                    <option value="${db.name}" ${config.database === db.name ? 'selected' : ''}>
+                                        ${db.name}${db.cdc_enabled ? ' (CDC)' : ''}
+                                    </option>
+                                `).join('')}
+                            </select>
+                        </div>
+                    `;
+                    
+                    // Store connection config in node
+                    if (connConfig) {
+                        nodes[nodeId].config.server = connConfig.server;
+                        nodes[nodeId].config.port = connConfig.port || 1433;
+                        nodes[nodeId].config.use_windows_auth = connConfig.use_windows_auth;
+                        nodes[nodeId].config.username = connConfig.username || '';
+                        nodes[nodeId].config.password = connConfig.password || '';
+                    }
+                }
+                break;
+                
+            case 'dest_database':
+                {
+                    const connConfig = connectionConfigs.destination;
+                    const serverName = connConfig ? `${connConfig.server}:${connConfig.port || 1433}` : 'Not configured';
+                    const databases = await loadDatabases('destination');
+                    
+                    html += `
+                        <div class="property-group">
+                            <label class="property-label">Server</label>
+                            <input type="text" class="form-control form-control-sm" 
+                                   value="${serverName}" 
+                                   readonly
+                                   style="background-color: #e9ecef; cursor: not-allowed;"
+                                   title="Server name is taken from active working set configuration">
+                            <small class="text-muted">From active working set (read-only)</small>
+                        </div>
+                        <div class="property-group">
+                            <label class="property-label">Database</label>
+                            <select class="form-select form-select-sm" 
+                                    id="db-select-${nodeId}"
+                                    onchange="WorkflowDesigner.updateNodeConfig('${nodeId}', 'database', this.value); WorkflowDesigner.loadTablesForNode('${nodeId}', 'destination', this.value)">
+                                <option value="">Select database...</option>
+                                ${databases.map(db => `
+                                    <option value="${db.name}" ${config.database === db.name ? 'selected' : ''}>
+                                        ${db.name}${db.cdc_enabled ? ' (CDC)' : ''}
+                                    </option>
+                                `).join('')}
+                            </select>
+                        </div>
+                    `;
+                    
+                    // Store connection config in node
+                    if (connConfig) {
+                        nodes[nodeId].config.server = connConfig.server;
+                        nodes[nodeId].config.port = connConfig.port || 1433;
+                        nodes[nodeId].config.use_windows_auth = connConfig.use_windows_auth;
+                        nodes[nodeId].config.username = connConfig.username || '';
+                        nodes[nodeId].config.password = connConfig.password || '';
+                    }
+                }
                 break;
                 
             case 'source_table':
+                {
+                    const connectionType = 'source';
+                    const dbNode = findUpstreamDatabaseNode(nodeId, connectionType);
+                    const database = dbNode ? dbNode.config.database : config.database || '';
+                    
+                    if (database) {
+                        const tables = await loadTables(connectionType, database);
+                        const schemas = [...new Set(tables.map(t => t.schema_name))];
+                        const selectedSchema = config.schema || '';
+                        const filteredTables = selectedSchema ? tables.filter(t => t.schema_name === selectedSchema) : [];
+                        
+                        html += `
+                            <div class="property-group">
+                                <label class="property-label">Database</label>
+                                <input type="text" class="form-control form-control-sm" 
+                                       value="${database}" 
+                                       readonly
+                                       style="background-color: #e9ecef; cursor: not-allowed;"
+                                       title="Database from upstream Source Database node">
+                            </div>
+                            <div class="property-group">
+                                <label class="property-label">Schema</label>
+                                <select class="form-select form-select-sm" 
+                                        id="schema-select-${nodeId}"
+                                        onchange="WorkflowDesigner.updateNodeConfig('${nodeId}', 'schema', this.value); WorkflowDesigner.loadTablesForNode('${nodeId}', '${connectionType}', '${database}')">
+                                    <option value="">Select schema...</option>
+                                    ${schemas.map(schema => `
+                                        <option value="${schema}" ${selectedSchema === schema ? 'selected' : ''}>${schema}</option>
+                                    `).join('')}
+                                </select>
+                            </div>
+                            <div class="property-group">
+                                <label class="property-label">Table</label>
+                                <select class="form-select form-select-sm" 
+                                        id="table-select-${nodeId}"
+                                        onchange="WorkflowDesigner.updateNodeConfig('${nodeId}', 'table', this.value); WorkflowDesigner.loadColumnsForNode('${nodeId}', '${connectionType}')">
+                                    <option value="">Select table...</option>
+                                    ${filteredTables.map(table => `
+                                        <option value="${table.table_name}" ${config.table === table.table_name ? 'selected' : ''}>
+                                            ${table.table_name}${table.row_count !== null ? ` (${table.row_count.toLocaleString()} rows)` : ''}
+                                        </option>
+                                    `).join('')}
+                                </select>
+                            </div>
+                        `;
+                    } else {
+                        html += `
+                            <div class="alert alert-warning alert-sm">
+                                <small>Connect this node to a Source Database node first</small>
+                            </div>
+                        `;
+                    }
+                }
+                break;
+                
             case 'dest_table':
-                html += `
-                    <div class="property-group">
-                        <label class="property-label">Schema</label>
-                        <input type="text" class="form-control form-control-sm" 
-                               value="${config.schema || ''}" 
-                               onchange="WorkflowDesigner.updateNodeConfig('${nodeId}', 'schema', this.value)">
-                    </div>
-                    <div class="property-group">
-                        <label class="property-label">Table</label>
-                        <input type="text" class="form-control form-control-sm" 
-                               value="${config.table || ''}" 
-                               onchange="WorkflowDesigner.updateNodeConfig('${nodeId}', 'table', this.value)">
-                    </div>
-                `;
+                {
+                    const connectionType = 'destination';
+                    const dbNode = findUpstreamDatabaseNode(nodeId, connectionType);
+                    const database = dbNode ? dbNode.config.database : config.database || '';
+                    
+                    if (database) {
+                        const tables = await loadTables(connectionType, database);
+                        const schemas = [...new Set(tables.map(t => t.schema_name))];
+                        const selectedSchema = config.schema || '';
+                        const filteredTables = selectedSchema ? tables.filter(t => t.schema_name === selectedSchema) : [];
+                        
+                        html += `
+                            <div class="property-group">
+                                <label class="property-label">Database</label>
+                                <input type="text" class="form-control form-control-sm" 
+                                       value="${database}" 
+                                       readonly
+                                       style="background-color: #e9ecef; cursor: not-allowed;"
+                                       title="Database from upstream Destination Database node">
+                            </div>
+                            <div class="property-group">
+                                <label class="property-label">Schema</label>
+                                <select class="form-select form-select-sm" 
+                                        id="schema-select-${nodeId}"
+                                        onchange="WorkflowDesigner.updateNodeConfig('${nodeId}', 'schema', this.value); WorkflowDesigner.loadTablesForNode('${nodeId}', '${connectionType}', '${database}')">
+                                    <option value="">Select schema...</option>
+                                    ${schemas.map(schema => `
+                                        <option value="${schema}" ${selectedSchema === schema ? 'selected' : ''}>${schema}</option>
+                                    `).join('')}
+                                </select>
+                            </div>
+                            <div class="property-group">
+                                <label class="property-label">Table</label>
+                                <select class="form-select form-select-sm" 
+                                        id="table-select-${nodeId}"
+                                        onchange="WorkflowDesigner.updateNodeConfig('${nodeId}', 'table', this.value)">
+                                    <option value="">Select table...</option>
+                                    ${filteredTables.map(table => `
+                                        <option value="${table.table_name}" ${config.table === table.table_name ? 'selected' : ''}>
+                                            ${table.table_name}${table.row_count !== null ? ` (${table.row_count.toLocaleString()} rows)` : ''}
+                                        </option>
+                                    `).join('')}
+                                </select>
+                            </div>
+                        `;
+                    } else {
+                        html += `
+                            <div class="alert alert-warning alert-sm">
+                                <small>Connect this node to a Destination Database node first</small>
+                            </div>
+                        `;
+                    }
+                }
+                break;
+                
+            case 'source_columns':
+                {
+                    const tableNode = findUpstreamTableNode(nodeId);
+                    if (tableNode && tableNode.config.schema && tableNode.config.table) {
+                        const connectionType = tableNode.type === 'source_table' ? 'source' : 'destination';
+                        const columns = await loadColumns(connectionType, tableNode.config.schema, tableNode.config.table);
+                        const selectedCols = config.selected_columns || [];
+                        
+                        html += `
+                            <div class="property-group">
+                                <label class="property-label">Source Table</label>
+                                <input type="text" class="form-control form-control-sm" 
+                                       value="${tableNode.config.schema}.${tableNode.config.table}" 
+                                       readonly
+                                       style="background-color: #e9ecef; cursor: not-allowed;">
+                            </div>
+                            <div class="property-group">
+                                <label class="property-label">Select Columns</label>
+                                <div style="max-height: 200px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 0.25rem; padding: 0.5rem;">
+                                    ${columns.map(col => `
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" 
+                                                   id="col-${nodeId}-${col.column_name}"
+                                                   value="${col.column_name}"
+                                                   ${selectedCols.includes(col.column_name) ? 'checked' : ''}
+                                                   onchange="WorkflowDesigner.updateColumnSelection('${nodeId}', '${col.column_name}', this.checked)">
+                                            <label class="form-check-label small" for="col-${nodeId}-${col.column_name}">
+                                                ${col.column_name}
+                                                <span class="text-muted">(${col.data_type}${col.is_primary_key ? ', PK' : ''})</span>
+                                            </label>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        html += `
+                            <div class="alert alert-warning alert-sm">
+                                <small>Connect this node to a Source Table node first</small>
+                            </div>
+                        `;
+                    }
+                }
                 break;
                 
             case 'transform_json':
-                html += `
-                    <div class="property-group">
-                        <label class="property-label">Source Columns</label>
-                        <small class="text-muted d-block mb-1">Comma-separated</small>
-                        <input type="text" class="form-control form-control-sm" 
-                               value="${(config.source_columns || []).join(', ')}" 
-                               onchange="WorkflowDesigner.updateNodeConfigArray('${nodeId}', 'source_columns', this.value)">
-                    </div>
-                    <div class="property-group">
-                        <label class="property-label">Destination Column</label>
-                        <input type="text" class="form-control form-control-sm" 
-                               value="${config.destination_column || ''}" 
-                               onchange="WorkflowDesigner.updateNodeConfig('${nodeId}', 'destination_column', this.value)">
-                    </div>
-                `;
+                {
+                    const tableNode = findUpstreamTableNode(nodeId);
+                    if (tableNode && tableNode.config.schema && tableNode.config.table) {
+                        const connectionType = tableNode.type === 'source_table' ? 'source' : 'destination';
+                        const columns = await loadColumns(connectionType, tableNode.config.schema, tableNode.config.table);
+                        const selectedCols = config.source_columns || [];
+                        
+                        html += `
+                            <div class="property-group">
+                                <label class="property-label">Source Columns</label>
+                                <div style="max-height: 150px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 0.25rem; padding: 0.5rem;">
+                                    ${columns.map(col => `
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" 
+                                                   id="json-col-${nodeId}-${col.column_name}"
+                                                   value="${col.column_name}"
+                                                   ${selectedCols.includes(col.column_name) ? 'checked' : ''}
+                                                   onchange="WorkflowDesigner.updateColumnSelectionForTransform('${nodeId}', 'source_columns', '${col.column_name}', this.checked)">
+                                            <label class="form-check-label small" for="json-col-${nodeId}-${col.column_name}">
+                                                ${col.column_name}
+                                            </label>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            <div class="property-group">
+                                <label class="property-label">Destination Column</label>
+                                <input type="text" class="form-control form-control-sm" 
+                                       value="${config.destination_column || ''}" 
+                                       onchange="WorkflowDesigner.updateNodeConfig('${nodeId}', 'destination_column', this.value)">
+                            </div>
+                        `;
+                    } else {
+                        html += `
+                            <div class="alert alert-warning alert-sm">
+                                <small>Connect this node to a Source Table node first</small>
+                            </div>
+                        `;
+                    }
+                }
                 break;
                 
             case 'transform_concat':
@@ -843,6 +1214,61 @@ const WorkflowDesigner = (function() {
                 nodes[nodeId].config[key] = array;
                 updateNodeDisplay(nodeId);
             }
+        },
+        
+        updateColumnSelection: function(nodeId, columnName, checked) {
+            if (nodes[nodeId]) {
+                if (!nodes[nodeId].config.selected_columns) {
+                    nodes[nodeId].config.selected_columns = [];
+                }
+                
+                if (checked) {
+                    if (!nodes[nodeId].config.selected_columns.includes(columnName)) {
+                        nodes[nodeId].config.selected_columns.push(columnName);
+                    }
+                } else {
+                    nodes[nodeId].config.selected_columns = nodes[nodeId].config.selected_columns.filter(c => c !== columnName);
+                }
+                
+                updateNodeDisplay(nodeId);
+            }
+        },
+        
+        loadTablesForNode: async function(nodeId, connectionType, database) {
+            const node = nodes[nodeId];
+            if (!node || !database) return;
+            
+            const tables = await loadTables(connectionType, database);
+            const schemaSelect = document.getElementById(`schema-select-${nodeId}`);
+            const tableSelect = document.getElementById(`table-select-${nodeId}`);
+            
+            if (!schemaSelect || !tableSelect) return;
+            
+            const selectedSchema = schemaSelect.value;
+            const filteredTables = selectedSchema ? tables.filter(t => t.schema_name === selectedSchema) : [];
+            
+            // Update table dropdown
+            tableSelect.innerHTML = '<option value="">Select table...</option>';
+            filteredTables.forEach(table => {
+                const option = document.createElement('option');
+                option.value = table.table_name;
+                option.textContent = `${table.table_name}${table.row_count !== null ? ` (${table.row_count.toLocaleString()} rows)` : ''}`;
+                if (node.config.table === table.table_name) {
+                    option.selected = true;
+                }
+                tableSelect.appendChild(option);
+            });
+        },
+        
+        loadColumnsForNode: async function(nodeId, connectionType) {
+            const node = nodes[nodeId];
+            if (!node) return;
+            
+            const tableNode = findUpstreamTableNode(nodeId);
+            if (!tableNode || !tableNode.config.schema || !tableNode.config.table) return;
+            
+            // Reload properties panel to refresh column list
+            await showNodeProperties(nodeId);
         },
         
         // Workflow operations

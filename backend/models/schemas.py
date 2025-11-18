@@ -108,6 +108,10 @@ class TableMapping(BaseModel):
     use_duckdb_transformation: bool = False  # Enable DuckDB in-memory staging/transformation
     duckdb_script_name: Optional[str] = None  # Name of DuckDB script file to use
     duckdb_script_content: Optional[str] = None  # Inline DuckDB SQL script (alternative to file)
+    
+    # Initial snapshot options
+    perform_initial_snapshot: bool = False  # If True, perform initial snapshot before CDC monitoring
+    snapshot_completed_at: Optional[datetime] = None  # Timestamp when snapshot was completed (prevents re-running)
 
 
 class WorkingSet(BaseModel):
@@ -179,6 +183,7 @@ class CDCEvent(BaseModel):
     data: Dict[str, Any]
     status: str = "pending"  # pending, processed, failed
     error: Optional[str] = None
+    source_change_time: Optional[datetime] = None  # Original timestamp from source table (for latency tracking)
 
 
 class SyncStatistics(BaseModel):

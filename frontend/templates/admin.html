@@ -642,6 +642,22 @@
                                     </button>
                                 </div>
                             </div>
+                            
+                            <hr class="my-3">
+                            
+                            <!-- Initial Snapshot -->
+                            <div class="mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="mapPerformSnapshot">
+                                    <label class="form-check-label fw-bold" for="mapPerformSnapshot">
+                                        <i class="bi bi-download"></i> Perform Initial Snapshot
+                                    </label>
+                                </div>
+                                <small class="text-muted">
+                                    Truncate destination table and load all existing data from source before starting CDC monitoring.
+                                    <br><strong>Note:</strong> Snapshot runs only once per mapping. Large tables are processed in batches.
+                                </small>
+                            </div>
                         </div>
                     </form>
                 </div>

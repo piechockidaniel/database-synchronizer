@@ -11,6 +11,7 @@ from backend.db.mssql_manager import connection_pool
 from backend.core.duckdb_processor import duckdb_processor
 from backend.core.snapshot_service import snapshot_service
 from backend.core.latency_monitor import latency_monitor
+from backend.core.sql_mapping_service import sql_mapping_service
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -307,6 +308,136 @@ async def get_latency_records(mapping_id: Optional[str] = None, limit: int = 100
         raise
     except Exception as e:
         logger.error(f"Error getting latency records: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/sql-mapping/{mapping_id}/execute")
+async def execute_sql_mapping(mapping_id: str) -> Dict[str, Any]:
+    """Execute a SQL mapping synchronization.
+    
+    Args:
+        mapping_id: SQL mapping ID to execute
+        
+    Returns:
+        Execution result with success status and row count
+    """
+    try:
+        # Get SQL mapping
+        sql_mapping = config_manager.get_sql_mapping(mapping_id)
+        if not sql_mapping:
+            raise HTTPException(status_code=404, detail="SQL mapping not found")
+        
+        if not sql_mapping.enabled:
+            raise HTTPException(status_code=400, detail="SQL mapping is disabled")
+        
+        # Get active workset for connections
+        active_workset = config_manager.get_active_workset()
+        if not active_workset:
+            raise HTTPException(status_code=400, detail="No active working set configured")
+        
+        # Set up connections
+        source_conn = connection_pool.set_source(active_workset.source_connection)
+        dest_conn = connection_pool.set_destination(active_workset.destination_connection)
+        
+        # Execute SQL mapping
+        success, message, rows_processed = sql_mapping_service.execute_mapping(
+            sql_mapping,
+            source_conn,
+            dest_conn
+        )
+        
+        if success:
+            logger.info(f"SQL mapping {mapping_id} executed successfully: {rows_processed} rows processed")
+            return {
+                "success": True,
+                "message": message,
+                "rows_processed": rows_processed,
+                "mapping_id": mapping_id
+            }
+        else:
+            logger.error(f"SQL mapping {mapping_id} execution failed: {message}")
+            return {
+                "success": False,
+                "message": message,
+                "rows_processed": 0,
+                "mapping_id": mapping_id
+            }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error executing SQL mapping: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/sql-mapping/execute-all")
+async def execute_all_sql_mappings() -> Dict[str, Any]:
+    """Execute all enabled SQL mappings.
+    
+    Returns:
+        Dictionary with execution results for each mapping
+    """
+    try:
+        # Get active workset for connections
+        active_workset = config_manager.get_active_workset()
+        if not active_workset:
+            raise HTTPException(status_code=400, detail="No active working set configured")
+        
+        # Set up connections
+        source_conn = connection_pool.set_source(active_workset.source_connection)
+        dest_conn = connection_pool.set_destination(active_workset.destination_connection)
+        
+        # Get all enabled SQL mappings
+        sql_mappings = config_manager.get_enabled_sql_mappings()
+        
+        if not sql_mappings:
+            return {
+                "success": True,
+                "message": "No enabled SQL mappings found",
+                "results": []
+            }
+        
+        results = []
+        for sql_mapping in sql_mappings:
+            try:
+                success, message, rows_processed = sql_mapping_service.execute_mapping(
+                    sql_mapping,
+                    source_conn,
+                    dest_conn
+                )
+                
+                results.append({
+                    "mapping_id": sql_mapping.id,
+                    "mapping_name": sql_mapping.name,
+                    "success": success,
+                    "message": message,
+                    "rows_processed": rows_processed
+                })
+                
+            except Exception as e:
+                logger.error(f"Error executing SQL mapping {sql_mapping.id}: {e}")
+                results.append({
+                    "mapping_id": sql_mapping.id,
+                    "mapping_name": sql_mapping.name,
+                    "success": False,
+                    "message": str(e),
+                    "rows_processed": 0
+                })
+        
+        total_rows = sum(r["rows_processed"] for r in results)
+        successful = sum(1 for r in results if r["success"])
+        
+        return {
+            "success": True,
+            "message": f"Executed {successful}/{len(results)} SQL mappings successfully",
+            "total_rows_processed": total_rows,
+            "results": results
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error executing SQL mappings: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

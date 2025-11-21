@@ -114,6 +114,41 @@ class TableMapping(BaseModel):
     snapshot_completed_at: Optional[datetime] = None  # Timestamp when snapshot was completed (prevents re-running)
 
 
+class SQLMapping(BaseModel):
+    """SQL-based mapping configuration.
+    
+    Allows synchronization based on custom SQL queries instead of table-to-table mappings.
+    Useful for complex transformations, aggregations, or multi-table joins.
+    """
+    id: str = Field(..., description="Unique mapping ID")
+    name: str = Field(..., description="Mapping name/description")
+    source_query: str = Field(..., description="SQL query to extract data from source database")
+    destination_schema: str = Field(..., description="Destination schema name")
+    destination_table: str = Field(..., description="Destination table name")
+    insert_query: Optional[str] = Field(None, description="Custom INSERT query template (optional, auto-generated if not provided)")
+    update_query: Optional[str] = Field(None, description="Custom UPDATE query template (optional)")
+    delete_query: Optional[str] = Field(None, description="Custom DELETE query template (optional)")
+    
+    # Sync options
+    enabled: bool = True
+    sync_mode: str = Field(default="full", description="Sync mode: 'full' (replace all), 'incremental' (append only), 'upsert' (merge)")
+    sync_schedule: Optional[str] = Field(None, description="Cron expression for scheduled sync (optional)")
+    
+    # Key columns for upsert/update/delete operations
+    key_columns: Optional[List[str]] = Field(None, description="Column names that uniquely identify a row (for upsert/update/delete)")
+    
+    # Execution options
+    batch_size: int = Field(default=1000, description="Batch size for processing records")
+    timeout_seconds: int = Field(default=300, description="Query timeout in seconds")
+    
+    # Metadata
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+    last_run_at: Optional[datetime] = None
+    last_run_status: Optional[str] = None  # success, failed, running
+    last_run_error: Optional[str] = None
+
+
 class WorkingSet(BaseModel):
     """Working set configuration."""
     id: str = Field(..., description="Unique working set ID")

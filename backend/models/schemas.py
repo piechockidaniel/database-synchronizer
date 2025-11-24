@@ -68,6 +68,12 @@ class TransformationEngine(str, Enum):
     DUCKDB = "duckdb"  # DuckDB in-memory transformation
 
 
+class MappingType(str, Enum):
+    """Mapping type enum."""
+    TABLE = "table"  # Table-to-table mapping with CDC
+    SQL = "sql"  # SQL query-based mapping
+
+
 class ColumnMapping(BaseModel):
     """Column-to-column mapping.
     
@@ -91,8 +97,58 @@ class ColumnMapping(BaseModel):
     default_value: Optional[str] = None  # Default value if source is NULL or missing (can be SQL expression)
 
 
+class Mapping(BaseModel):
+    """Unified mapping configuration supporting both table-based and SQL-based mappings."""
+    id: str = Field(..., description="Unique mapping ID")
+    name: str = Field(..., description="Mapping name/description")
+    mapping_type: MappingType = Field(..., description="Type of mapping: TABLE or SQL")
+    
+    # Common fields
+    destination_schema: str = Field(..., description="Destination schema name")
+    destination_table: str = Field(..., description="Destination table name")
+    enabled: bool = True
+    assigned_worksets: List[str] = Field(default_factory=list, description="List of working set IDs this mapping is assigned to")
+    
+    # Sync options (common)
+    sync_mode: str = Field(default="full", description="Sync mode: 'full' (replace all), 'incremental' (append only), 'upsert' (merge)")
+    sync_schedule: Optional[str] = Field(None, description="Cron expression for scheduled sync (optional)")
+    batch_size: int = Field(default=1000, description="Batch size for processing records")
+    timeout_seconds: int = Field(default=300, description="Query timeout in seconds")
+    
+    # Table-specific fields (when mapping_type == TABLE)
+    source_schema: Optional[str] = Field(None, description="Source schema name (for TABLE type)")
+    source_table: Optional[str] = Field(None, description="Source table name (for TABLE type)")
+    column_mappings: List[ColumnMapping] = Field(default_factory=list, description="Column mappings (for TABLE type)")
+    sync_deletes: bool = True  # For TABLE type
+    sync_updates: bool = True  # For TABLE type
+    sync_inserts: bool = True  # For TABLE type
+    
+    # DuckDB transformation options (for TABLE type)
+    use_duckdb_transformation: bool = False
+    duckdb_script_name: Optional[str] = None
+    duckdb_script_content: Optional[str] = None
+    
+    # Initial snapshot options (for TABLE type)
+    perform_initial_snapshot: bool = False
+    snapshot_completed_at: Optional[datetime] = None
+    
+    # SQL-specific fields (when mapping_type == SQL)
+    source_query: Optional[str] = Field(None, description="SQL query to extract data (for SQL type)")
+    insert_query: Optional[str] = Field(None, description="Custom INSERT query template (for SQL type)")
+    update_query: Optional[str] = Field(None, description="Custom UPDATE query template (for SQL type)")
+    delete_query: Optional[str] = Field(None, description="Custom DELETE query template (for SQL type)")
+    key_columns: Optional[List[str]] = Field(None, description="Key columns for upsert/update/delete (for SQL type)")
+    
+    # Metadata
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+    last_run_at: Optional[datetime] = None
+    last_run_status: Optional[str] = None  # success, failed, running
+    last_run_error: Optional[str] = None
+
+
 class TableMapping(BaseModel):
-    """Table mapping configuration."""
+    """Table mapping configuration (DEPRECATED - use Mapping with mapping_type=TABLE instead)."""
     id: str = Field(..., description="Unique mapping ID")
     source_schema: str
     source_table: str
@@ -115,7 +171,7 @@ class TableMapping(BaseModel):
 
 
 class SQLMapping(BaseModel):
-    """SQL-based mapping configuration.
+    """SQL-based mapping configuration (DEPRECATED - use Mapping with mapping_type=SQL instead).
     
     Allows synchronization based on custom SQL queries instead of table-to-table mappings.
     Useful for complex transformations, aggregations, or multi-table joins.
@@ -159,8 +215,10 @@ class WorkingSet(BaseModel):
     description: Optional[str] = None
     source_connection: ConnectionConfig
     destination_connection: ConnectionConfig
-    table_mappings: List[str] = Field(default_factory=list, description="List of table mapping IDs")
-    sql_mappings: List[str] = Field(default_factory=list, description="List of SQL mapping IDs")
+    mappings: List[str] = Field(default_factory=list, description="Unified list of mapping IDs (table and SQL)")
+    # Legacy fields for backward compatibility during migration
+    table_mappings: List[str] = Field(default_factory=list, description="DEPRECATED: List of table mapping IDs")
+    sql_mappings: List[str] = Field(default_factory=list, description="DEPRECATED: List of SQL mapping IDs")
     is_active: bool = False
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)

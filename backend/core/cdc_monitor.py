@@ -5,7 +5,7 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime
 from backend.db.mssql_manager import MSSQLConnection
 from backend.db.cdc_operations import CDCOperations
-from backend.models.schemas import CDCEvent, CDCOperation, TableMapping
+from backend.models.schemas import CDCEvent, CDCOperation, Mapping, MappingType
 from backend.core.config_manager import config_manager
 import uuid
 
@@ -24,7 +24,7 @@ class CDCMonitor:
         self.event_queue: asyncio.Queue = asyncio.Queue()
         self.poll_interval = 5  # seconds
         self.monitor_task: Optional[asyncio.Task] = None
-        self.active_mappings: List[TableMapping] = []
+        self.active_mappings: List[Mapping] = []
         self.lsn_state: Dict[str, bytes] = {}
     
     def set_connection(self, connection: MSSQLConnection):
@@ -37,13 +37,17 @@ class CDCMonitor:
         self.cdc_ops = CDCOperations(connection)
         logger.info("CDC monitor connection set")
     
-    def set_mappings(self, mappings: List[TableMapping]):
+    def set_mappings(self, mappings: List[Mapping]):
         """Set active table mappings to monitor.
         
         Args:
-            mappings: List of table mappings
+            mappings: List of unified mappings (only TABLE type will be monitored)
         """
-        self.active_mappings = [m for m in mappings if m.enabled]
+        # Filter to only TABLE type mappings and enabled ones
+        self.active_mappings = [
+            m for m in mappings 
+            if m.mapping_type == MappingType.TABLE and m.enabled
+        ]
         logger.info(f"CDC monitor tracking {len(self.active_mappings)} table mappings")
     
     @staticmethod
@@ -98,12 +102,17 @@ class CDCMonitor:
         except Exception as e:
             logger.error(f"Error saving LSN state for {table_key}: {e}")
     
-    async def _poll_table_changes(self, mapping: TableMapping):
+    async def _poll_table_changes(self, mapping: Mapping):
         """Poll CDC changes for a specific table.
         
         Args:
-            mapping: Table mapping configuration
+            mapping: Unified mapping (must be TABLE type)
         """
+        # Ensure this is a TABLE type mapping
+        if mapping.mapping_type != MappingType.TABLE:
+            logger.warning(f"Skipping non-TABLE mapping {mapping.id} in CDC monitor")
+            return
+        
         try:
             table_key = f"{mapping.source_schema}.{mapping.source_table}"
             capture_instance = f"{mapping.source_schema}_{mapping.source_table}"

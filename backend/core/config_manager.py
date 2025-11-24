@@ -1,17 +1,18 @@
 """Configuration management system with JSON persistence."""
 import json
 import logging
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict
-from backend.models.schemas import WorkingSet, TableMapping, SQLMapping
+from backend.models.schemas import WorkingSet, TableMapping, SQLMapping, Mapping, MappingType
 
 logger = logging.getLogger(__name__)
 
 CONFIG_DIR = Path("config")
 WORKSETS_FILE = CONFIG_DIR / "worksets.json"
 MAPPINGS_FILE = CONFIG_DIR / "mappings.json"
-SQL_MAPPINGS_FILE = CONFIG_DIR / "sql_mappings.json"
+SQL_MAPPINGS_FILE = CONFIG_DIR / "sql_mappings.json"  # Kept for migration detection
 LSN_STATE_FILE = CONFIG_DIR / "lsn_state.json"
 
 
@@ -22,9 +23,9 @@ class ConfigManager:
         """Initialize configuration manager."""
         self._ensure_config_dir()
         self._worksets: Dict[str, WorkingSet] = {}
-        self._mappings: Dict[str, TableMapping] = {}
-        self._sql_mappings: Dict[str, SQLMapping] = {}
+        self._mappings: Dict[str, Mapping] = {}  # Unified mappings storage
         self._lsn_state: Dict[str, str] = {}
+        self._migration_performed = False
         self.load_all()
     
     @staticmethod
@@ -35,15 +36,19 @@ class ConfigManager:
     def load_all(self):
         """Load all configuration files."""
         self.load_worksets()
+        # Check for legacy mapping files and migrate if needed
+        if self._needs_migration():
+            self._migrate_legacy_mappings()
         self.load_mappings()
-        self.load_sql_mappings()
         self.load_lsn_state()
+        # Migrate worksets to use unified mappings list
+        if self._migration_performed:
+            self._migrate_workset_mappings()
     
     def save_all(self):
         """Save all configuration files."""
         self.save_worksets()
         self.save_mappings()
-        self.save_sql_mappings()
         self.save_lsn_state()
     
     # Working Sets Management
@@ -198,19 +203,180 @@ class ConfigManager:
             logger.error(f"Error activating working set: {e}")
             return False
     
-    # Table Mappings Management
+    # Unified Mappings Management
+    
+    def _needs_migration(self) -> bool:
+        """Check if migration from legacy mapping files is needed.
+        
+        Returns:
+            True if legacy files exist and unified mappings file doesn't exist or is empty
+        """
+        has_legacy_table = MAPPINGS_FILE.exists() and MAPPINGS_FILE.stat().st_size > 0
+        has_legacy_sql = SQL_MAPPINGS_FILE.exists() and SQL_MAPPINGS_FILE.stat().st_size > 0
+        
+        # Check if unified file exists and has content
+        unified_exists = MAPPINGS_FILE.exists()
+        if unified_exists:
+            try:
+                with open(MAPPINGS_FILE, 'r') as f:
+                    data = json.load(f)
+                    # Check if it contains unified Mapping objects (have mapping_type field)
+                    if data:
+                        first_mapping = list(data.values())[0]
+                        if 'mapping_type' in first_mapping:
+                            return False  # Already unified
+            except:
+                pass
+        
+        return has_legacy_table or has_legacy_sql
+    
+    def _migrate_legacy_mappings(self):
+        """Migrate legacy TableMapping and SQLMapping to unified Mapping model."""
+        logger.info("Starting migration of legacy mappings to unified Mapping model...")
+        migrated_count = 0
+        
+        try:
+            # Load legacy table mappings
+            legacy_table_mappings: Dict[str, TableMapping] = {}
+            if MAPPINGS_FILE.exists():
+                try:
+                    with open(MAPPINGS_FILE, 'r') as f:
+                        data = json.load(f)
+                        # Check if already unified
+                        if data and 'mapping_type' in list(data.values())[0]:
+                            logger.info("Mappings file already contains unified mappings, skipping migration")
+                            return
+                        # Load as TableMapping
+                        legacy_table_mappings = {
+                            mapping_id: TableMapping(**mapping_data)
+                            for mapping_id, mapping_data in data.items()
+                        }
+                        logger.info(f"Loaded {len(legacy_table_mappings)} legacy table mappings")
+                except Exception as e:
+                    logger.warning(f"Error loading legacy table mappings: {e}")
+            
+            # Load legacy SQL mappings
+            legacy_sql_mappings: Dict[str, SQLMapping] = {}
+            if SQL_MAPPINGS_FILE.exists():
+                try:
+                    with open(SQL_MAPPINGS_FILE, 'r') as f:
+                        data = json.load(f)
+                        legacy_sql_mappings = {
+                            mapping_id: SQLMapping(**mapping_data)
+                            for mapping_id, mapping_data in data.items()
+                        }
+                        logger.info(f"Loaded {len(legacy_sql_mappings)} legacy SQL mappings")
+                except Exception as e:
+                    logger.warning(f"Error loading legacy SQL mappings: {e}")
+            
+            # Convert TableMapping to unified Mapping
+            for mapping_id, table_mapping in legacy_table_mappings.items():
+                unified_mapping = Mapping(
+                    id=table_mapping.id,
+                    name=f"{table_mapping.source_schema}.{table_mapping.source_table}",
+                    mapping_type=MappingType.TABLE,
+                    destination_schema=table_mapping.destination_schema,
+                    destination_table=table_mapping.destination_table,
+                    source_schema=table_mapping.source_schema,
+                    source_table=table_mapping.source_table,
+                    column_mappings=table_mapping.column_mappings,
+                    enabled=table_mapping.enabled,
+                    sync_deletes=table_mapping.sync_deletes,
+                    sync_updates=table_mapping.sync_updates,
+                    sync_inserts=table_mapping.sync_inserts,
+                    use_duckdb_transformation=table_mapping.use_duckdb_transformation,
+                    duckdb_script_name=table_mapping.duckdb_script_name,
+                    duckdb_script_content=table_mapping.duckdb_script_content,
+                    perform_initial_snapshot=table_mapping.perform_initial_snapshot,
+                    snapshot_completed_at=table_mapping.snapshot_completed_at,
+                    sync_mode="full",  # Default for table mappings
+                    batch_size=1000,
+                    timeout_seconds=300,
+                    assigned_worksets=[]  # Will be populated from worksets
+                )
+                self._mappings[mapping_id] = unified_mapping
+                migrated_count += 1
+            
+            # Convert SQLMapping to unified Mapping
+            for mapping_id, sql_mapping in legacy_sql_mappings.items():
+                unified_mapping = Mapping(
+                    id=sql_mapping.id,
+                    name=sql_mapping.name,
+                    mapping_type=MappingType.SQL,
+                    destination_schema=sql_mapping.destination_schema,
+                    destination_table=sql_mapping.destination_table,
+                    source_query=sql_mapping.source_query,
+                    insert_query=sql_mapping.insert_query,
+                    update_query=sql_mapping.update_query,
+                    delete_query=sql_mapping.delete_query,
+                    enabled=sql_mapping.enabled,
+                    sync_mode=sql_mapping.sync_mode,
+                    sync_schedule=sql_mapping.sync_schedule,
+                    key_columns=sql_mapping.key_columns,
+                    batch_size=sql_mapping.batch_size,
+                    timeout_seconds=sql_mapping.timeout_seconds,
+                    assigned_worksets=sql_mapping.assigned_worksets,
+                    created_at=sql_mapping.created_at,
+                    updated_at=sql_mapping.updated_at,
+                    last_run_at=sql_mapping.last_run_at,
+                    last_run_status=sql_mapping.last_run_status,
+                    last_run_error=sql_mapping.last_run_error
+                )
+                self._mappings[mapping_id] = unified_mapping
+                migrated_count += 1
+            
+            # Save unified mappings
+            if migrated_count > 0:
+                self.save_mappings()
+                logger.info(f"Migrated {migrated_count} mappings to unified model")
+                
+                # Backup legacy files
+                if legacy_table_mappings:
+                    backup_path = MAPPINGS_FILE.with_suffix('.json.backup')
+                    shutil.copy2(MAPPINGS_FILE, backup_path)
+                    logger.info(f"Backed up legacy table mappings to {backup_path}")
+                
+                if legacy_sql_mappings:
+                    backup_path = SQL_MAPPINGS_FILE.with_suffix('.json.backup')
+                    shutil.copy2(SQL_MAPPINGS_FILE, backup_path)
+                    logger.info(f"Backed up legacy SQL mappings to {backup_path}")
+                
+                self._migration_performed = True
+            else:
+                logger.info("No legacy mappings found to migrate")
+                
+        except Exception as e:
+            logger.error(f"Error during migration: {e}", exc_info=True)
+            raise
+    
+    def _migrate_workset_mappings(self):
+        """Migrate worksets to use unified mappings list."""
+        logger.info("Migrating worksets to use unified mappings list...")
+        updated_count = 0
+        
+        for workset_id, workset in self._worksets.items():
+            # Merge table_mappings and sql_mappings into unified mappings list
+            unified_mappings = list(set(workset.table_mappings + workset.sql_mappings))
+            
+            if unified_mappings != workset.mappings:
+                workset.mappings = unified_mappings
+                updated_count += 1
+        
+        if updated_count > 0:
+            self.save_worksets()
+            logger.info(f"Updated {updated_count} worksets to use unified mappings list")
     
     def load_mappings(self):
-        """Load table mappings from JSON file."""
+        """Load unified mappings from JSON file."""
         if MAPPINGS_FILE.exists():
             try:
                 with open(MAPPINGS_FILE, 'r') as f:
                     data = json.load(f)
                     self._mappings = {
-                        mapping_id: TableMapping(**mapping_data)
+                        mapping_id: Mapping(**mapping_data)
                         for mapping_id, mapping_data in data.items()
                     }
-                logger.info(f"Loaded {len(self._mappings)} table mappings")
+                logger.info(f"Loaded {len(self._mappings)} unified mappings")
             except Exception as e:
                 logger.error(f"Error loading mappings: {e}")
                 self._mappings = {}
@@ -218,7 +384,7 @@ class ConfigManager:
             self._mappings = {}
     
     def save_mappings(self):
-        """Save table mappings to JSON file."""
+        """Save unified mappings to JSON file."""
         try:
             data = {
                 mapping_id: mapping.model_dump(mode='json')
@@ -226,15 +392,15 @@ class ConfigManager:
             }
             with open(MAPPINGS_FILE, 'w') as f:
                 json.dump(data, f, indent=2, default=str)
-            logger.info(f"Saved {len(self._mappings)} table mappings")
+            logger.info(f"Saved {len(self._mappings)} unified mappings")
         except Exception as e:
             logger.error(f"Error saving mappings: {e}")
     
-    def create_mapping(self, mapping: TableMapping) -> bool:
-        """Create a new table mapping.
+    def create_mapping(self, mapping: Mapping) -> bool:
+        """Create a new unified mapping.
         
         Args:
-            mapping: Table mapping to create
+            mapping: Unified mapping to create
             
         Returns:
             True if created successfully
@@ -244,20 +410,20 @@ class ConfigManager:
                 logger.warning(f"Mapping {mapping.id} already exists")
                 return False
             
+            mapping.updated_at = datetime.now()
             self._mappings[mapping.id] = mapping
             self.save_mappings()
-            logger.info(f"Created mapping: {mapping.source_schema}.{mapping.source_table} -> "
-                       f"{mapping.destination_schema}.{mapping.destination_table}")
+            logger.info(f"Created mapping: {mapping.id} (type: {mapping.mapping_type.value})")
             return True
         except Exception as e:
             logger.error(f"Error creating mapping: {e}")
             return False
     
-    def update_mapping(self, mapping: TableMapping) -> bool:
-        """Update an existing table mapping.
+    def update_mapping(self, mapping: Mapping) -> bool:
+        """Update an existing unified mapping.
         
         Args:
-            mapping: Table mapping to update
+            mapping: Unified mapping to update
             
         Returns:
             True if updated successfully
@@ -267,6 +433,7 @@ class ConfigManager:
                 logger.warning(f"Mapping {mapping.id} does not exist")
                 return False
             
+            mapping.updated_at = datetime.now()
             self._mappings[mapping.id] = mapping
             self.save_mappings()
             logger.info(f"Updated mapping: {mapping.id}")
@@ -276,7 +443,7 @@ class ConfigManager:
             return False
     
     def delete_mapping(self, mapping_id: str) -> bool:
-        """Delete a table mapping.
+        """Delete a unified mapping.
         
         Args:
             mapping_id: Mapping ID to delete
@@ -295,58 +462,57 @@ class ConfigManager:
             logger.error(f"Error deleting mapping: {e}")
             return False
     
-    def get_mapping(self, mapping_id: str) -> Optional[TableMapping]:
-        """Get a table mapping by ID.
+    def get_mapping(self, mapping_id: str) -> Optional[Mapping]:
+        """Get a unified mapping by ID.
         
         Args:
             mapping_id: Mapping ID
             
         Returns:
-            Table mapping or None
+            Unified mapping or None
         """
         return self._mappings.get(mapping_id)
     
-    def get_all_mappings(self) -> List[TableMapping]:
-        """Get all table mappings.
+    def get_all_mappings(self) -> List[Mapping]:
+        """Get all unified mappings.
         
         Returns:
-            List of all table mappings
+            List of all unified mappings
         """
         return list(self._mappings.values())
     
-    def get_mappings_for_workset(self, workset_id: str) -> List[TableMapping]:
-        """Get all table mappings associated with a working set.
+    def get_mappings_for_workset(self, workset_id: str) -> List[Mapping]:
+        """Get all mappings (table and SQL) associated with a working set.
         
         Args:
             workset_id: Working set ID
             
         Returns:
-            List of table mappings
+            List of unified mappings
         """
         workset = self.get_workset(workset_id)
         if not workset:
             return []
         
+        # Use unified mappings list, fallback to legacy lists for compatibility
+        mapping_ids = workset.mappings if workset.mappings else (workset.table_mappings + workset.sql_mappings)
+        
         return [
             self._mappings[mapping_id]
-            for mapping_id in workset.table_mappings
+            for mapping_id in mapping_ids
             if mapping_id in self._mappings
         ]
     
-    def get_sql_mappings_for_workset(self, workset_id: str) -> List['SQLMapping']:
-        """Get all SQL mappings associated with a working set.
+    def get_mappings_by_type(self, mapping_type: MappingType) -> List[Mapping]:
+        """Get all mappings of a specific type.
         
         Args:
-            workset_id: Working set ID
+            mapping_type: Type of mapping to filter
             
         Returns:
-            List of SQL mappings
+            List of mappings of the specified type
         """
-        return [
-            mapping
-            for mapping in self._sql_mappings.values()
-            if workset_id in mapping.assigned_worksets
-        ]
+        return [m for m in self._mappings.values() if m.mapping_type == mapping_type]
     
     # LSN State Management
     
@@ -452,12 +618,33 @@ class ConfigManager:
                     for ws_id, ws_data in import_data['worksets'].items()
                 }
             
-            # Import mappings
+            # Import mappings (try unified first, fallback to legacy)
             if 'mappings' in import_data:
-                self._mappings = {
-                    m_id: TableMapping(**m_data)
-                    for m_id, m_data in import_data['mappings'].items()
-                }
+                try:
+                    # Try unified Mapping format
+                    self._mappings = {
+                        m_id: Mapping(**m_data)
+                        for m_id, m_data in import_data['mappings'].items()
+                    }
+                except:
+                    # Fallback to legacy TableMapping format
+                    self._mappings = {
+                        m_id: Mapping(
+                            id=m_data.get('id', m_id),
+                            name=m_data.get('name', f"mapping_{m_id}"),
+                            mapping_type=MappingType.TABLE,
+                            destination_schema=m_data.get('destination_schema', ''),
+                            destination_table=m_data.get('destination_table', ''),
+                            source_schema=m_data.get('source_schema', ''),
+                            source_table=m_data.get('source_table', ''),
+                            column_mappings=m_data.get('column_mappings', []),
+                            enabled=m_data.get('enabled', True),
+                            sync_deletes=m_data.get('sync_deletes', True),
+                            sync_updates=m_data.get('sync_updates', True),
+                            sync_inserts=m_data.get('sync_inserts', True)
+                        )
+                        for m_id, m_data in import_data['mappings'].items()
+                    }
             
             # Import LSN state
             if 'lsn_state' in import_data:
@@ -470,129 +657,6 @@ class ConfigManager:
             logger.error(f"Error importing configuration: {e}")
             return False
     
-    # SQL Mappings Management
-    
-    def load_sql_mappings(self):
-        """Load SQL mappings from JSON file."""
-        if SQL_MAPPINGS_FILE.exists():
-            try:
-                with open(SQL_MAPPINGS_FILE, 'r') as f:
-                    data = json.load(f)
-                    self._sql_mappings = {
-                        mapping_id: SQLMapping(**mapping_data)
-                        for mapping_id, mapping_data in data.items()
-                    }
-                logger.info(f"Loaded {len(self._sql_mappings)} SQL mappings")
-            except Exception as e:
-                logger.error(f"Error loading SQL mappings: {e}")
-                self._sql_mappings = {}
-        else:
-            self._sql_mappings = {}
-    
-    def save_sql_mappings(self):
-        """Save SQL mappings to JSON file."""
-        try:
-            data = {
-                mapping_id: mapping.model_dump(mode='json')
-                for mapping_id, mapping in self._sql_mappings.items()
-            }
-            with open(SQL_MAPPINGS_FILE, 'w') as f:
-                json.dump(data, f, indent=2, default=str)
-            logger.info(f"Saved {len(self._sql_mappings)} SQL mappings")
-        except Exception as e:
-            logger.error(f"Error saving SQL mappings: {e}")
-    
-    def create_sql_mapping(self, mapping: SQLMapping) -> bool:
-        """Create a new SQL mapping.
-        
-        Args:
-            mapping: SQL mapping to create
-            
-        Returns:
-            True if created successfully
-        """
-        try:
-            if mapping.id in self._sql_mappings:
-                logger.warning(f"SQL mapping {mapping.id} already exists")
-                return False
-            
-            self._sql_mappings[mapping.id] = mapping
-            self.save_sql_mappings()
-            logger.info(f"Created SQL mapping: {mapping.name}")
-            return True
-        except Exception as e:
-            logger.error(f"Error creating SQL mapping: {e}")
-            return False
-    
-    def update_sql_mapping(self, mapping: SQLMapping) -> bool:
-        """Update an existing SQL mapping.
-        
-        Args:
-            mapping: SQL mapping to update
-            
-        Returns:
-            True if updated successfully
-        """
-        try:
-            if mapping.id not in self._sql_mappings:
-                logger.warning(f"SQL mapping {mapping.id} does not exist")
-                return False
-            
-            mapping.updated_at = datetime.now()
-            self._sql_mappings[mapping.id] = mapping
-            self.save_sql_mappings()
-            logger.info(f"Updated SQL mapping: {mapping.id}")
-            return True
-        except Exception as e:
-            logger.error(f"Error updating SQL mapping: {e}")
-            return False
-    
-    def delete_sql_mapping(self, mapping_id: str) -> bool:
-        """Delete a SQL mapping.
-        
-        Args:
-            mapping_id: Mapping ID to delete
-            
-        Returns:
-            True if deleted successfully
-        """
-        try:
-            if mapping_id in self._sql_mappings:
-                del self._sql_mappings[mapping_id]
-                self.save_sql_mappings()
-                logger.info(f"Deleted SQL mapping: {mapping_id}")
-                return True
-            return False
-        except Exception as e:
-            logger.error(f"Error deleting SQL mapping: {e}")
-            return False
-    
-    def get_sql_mapping(self, mapping_id: str) -> Optional[SQLMapping]:
-        """Get a SQL mapping by ID.
-        
-        Args:
-            mapping_id: Mapping ID
-            
-        Returns:
-            SQL mapping or None
-        """
-        return self._sql_mappings.get(mapping_id)
-    
-    def get_all_sql_mappings(self) -> List[SQLMapping]:
-        """Get all SQL mappings.
-        
-        Returns:
-            List of all SQL mappings
-        """
-        return list(self._sql_mappings.values())
-    
-    def get_enabled_sql_mappings(self) -> List[SQLMapping]:
-        """Get all enabled SQL mappings.
-        
-        Returns:
-            List of enabled SQL mappings
-        """
-        return [m for m in self._sql_mappings.values() if m.enabled]
 
 
 # Global configuration manager instance

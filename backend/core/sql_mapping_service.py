@@ -2,7 +2,7 @@
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
-from backend.models.schemas import SQLMapping
+from backend.models.schemas import Mapping, MappingType
 from backend.db.mssql_manager import MSSQLConnection
 
 logger = logging.getLogger(__name__)
@@ -17,20 +17,27 @@ class SQLMappingService:
     
     def execute_mapping(
         self,
-        mapping: SQLMapping,
+        mapping: Mapping,
         source_conn: MSSQLConnection,
         dest_conn: MSSQLConnection
     ) -> Tuple[bool, str, int]:
         """Execute a SQL mapping synchronization.
         
         Args:
-            mapping: SQL mapping configuration
+            mapping: Unified mapping (must be SQL type)
             source_conn: Source database connection
             dest_conn: Destination database connection
             
         Returns:
             Tuple of (success, message, rows_processed)
         """
+        # Validate mapping type
+        if mapping.mapping_type != MappingType.SQL:
+            return False, f"Mapping {mapping.id} is not a SQL mapping (type: {mapping.mapping_type})", 0
+        
+        if not mapping.source_query:
+            return False, f"SQL mapping {mapping.id} has no source query", 0
+        
         try:
             # Ensure connections are active
             if not source_conn.is_connected():
@@ -70,14 +77,14 @@ class SQLMappingService:
     
     def _execute_full_sync(
         self,
-        mapping: SQLMapping,
+        mapping: Mapping,
         source_data: List[Dict[str, Any]],
         dest_conn: MSSQLConnection
     ) -> Tuple[bool, str]:
         """Execute full sync (truncate and insert all data).
         
         Args:
-            mapping: SQL mapping configuration
+            mapping: Unified mapping (SQL type)
             source_data: Data from source query
             dest_conn: Destination database connection
             
@@ -108,14 +115,14 @@ class SQLMappingService:
     
     def _execute_incremental_sync(
         self,
-        mapping: SQLMapping,
+        mapping: Mapping,
         source_data: List[Dict[str, Any]],
         dest_conn: MSSQLConnection
     ) -> Tuple[bool, str]:
         """Execute incremental sync (append only).
         
         Args:
-            mapping: SQL mapping configuration
+            mapping: Unified mapping (SQL type)
             source_data: Data from source query
             dest_conn: Destination database connection
             
@@ -141,14 +148,14 @@ class SQLMappingService:
     
     def _execute_upsert_sync(
         self,
-        mapping: SQLMapping,
+        mapping: Mapping,
         source_data: List[Dict[str, Any]],
         dest_conn: MSSQLConnection
     ) -> Tuple[bool, str]:
         """Execute upsert sync (merge/update or insert).
         
         Args:
-            mapping: SQL mapping configuration
+            mapping: Unified mapping (SQL type)
             source_data: Data from source query
             dest_conn: Destination database connection
             

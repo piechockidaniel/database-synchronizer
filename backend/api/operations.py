@@ -1,7 +1,7 @@
 """Operations API endpoints for CDC monitoring control."""
 from fastapi import APIRouter, HTTPException
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from backend.models.schemas import SyncStatus, OperationStatus
 from backend.core.cdc_monitor import cdc_monitor
 from backend.core.sync_engine import sync_engine
@@ -12,6 +12,8 @@ from backend.core.duckdb_processor import duckdb_processor
 from backend.core.snapshot_service import snapshot_service
 from backend.core.latency_monitor import latency_monitor
 from backend.core.sql_mapping_service import sql_mapping_service
+from backend.core.mapping_executor import mapping_executor
+from backend.models.schemas import MappingType
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -37,14 +39,19 @@ async def start_synchronization():
         dest_conn = connection_pool.set_destination(active_workset.destination_connection)
         
         # Get mappings for working set
-        mappings = config_manager.get_mappings_for_workset(active_workset.id)
-        if not mappings:
-            raise HTTPException(status_code=400, detail="No table mappings configured in working set")
+        all_mappings = config_manager.get_mappings_for_workset(active_workset.id)
+        if not all_mappings:
+            raise HTTPException(status_code=400, detail="No mappings configured in working set")
         
-        # Perform initial snapshots for mappings that require it
+        # Filter to TABLE type mappings for CDC monitoring
+        mappings = [m for m in all_mappings if m.mapping_type == MappingType.TABLE]
+        if not mappings:
+            raise HTTPException(status_code=400, detail="No table mappings configured in working set (CDC requires TABLE type)")
+        
+        # Perform initial snapshots for TABLE mappings that require it
         snapshot_results = []
         for mapping in mappings:
-            if mapping.perform_initial_snapshot and not mapping.snapshot_completed_at:
+            if mapping.mapping_type == MappingType.TABLE and mapping.perform_initial_snapshot and not mapping.snapshot_completed_at:
                 logger.info(f"Performing initial snapshot for mapping: {mapping.id}")
                 success, message, rows_processed = snapshot_service.perform_snapshot(
                     mapping,
@@ -311,24 +318,27 @@ async def get_latency_records(mapping_id: Optional[str] = None, limit: int = 100
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/sql-mapping/{mapping_id}/execute")
-async def execute_sql_mapping(mapping_id: str) -> Dict[str, Any]:
-    """Execute a SQL mapping synchronization.
+@router.post("/mapping/{mapping_id}/execute")
+async def execute_mapping(mapping_id: str) -> Dict[str, Any]:
+    """Execute a mapping synchronization (SQL type only - TABLE mappings use CDC).
     
     Args:
-        mapping_id: SQL mapping ID to execute
+        mapping_id: Mapping ID to execute
         
     Returns:
         Execution result with success status and row count
     """
     try:
-        # Get SQL mapping
-        sql_mapping = config_manager.get_sql_mapping(mapping_id)
-        if not sql_mapping:
-            raise HTTPException(status_code=404, detail="SQL mapping not found")
+        # Get unified mapping
+        mapping = config_manager.get_mapping(mapping_id)
+        if not mapping:
+            raise HTTPException(status_code=404, detail="Mapping not found")
         
-        if not sql_mapping.enabled:
-            raise HTTPException(status_code=400, detail="SQL mapping is disabled")
+        if not mapping.enabled:
+            raise HTTPException(status_code=400, detail="Mapping is disabled")
+        
+        if mapping.mapping_type != MappingType.SQL:
+            raise HTTPException(status_code=400, detail=f"Mapping type {mapping.mapping_type} cannot be executed manually (use CDC for TABLE type)")
         
         # Get active workset for connections
         active_workset = config_manager.get_active_workset()
@@ -341,13 +351,13 @@ async def execute_sql_mapping(mapping_id: str) -> Dict[str, Any]:
         
         # Execute SQL mapping
         success, message, rows_processed = sql_mapping_service.execute_mapping(
-            sql_mapping,
+            mapping,
             source_conn,
             dest_conn
         )
         
         if success:
-            logger.info(f"SQL mapping {mapping_id} executed successfully: {rows_processed} rows processed")
+            logger.info(f"Mapping {mapping_id} executed successfully: {rows_processed} rows processed")
             return {
                 "success": True,
                 "message": message,
@@ -355,7 +365,7 @@ async def execute_sql_mapping(mapping_id: str) -> Dict[str, Any]:
                 "mapping_id": mapping_id
             }
         else:
-            logger.error(f"SQL mapping {mapping_id} execution failed: {message}")
+            logger.error(f"Mapping {mapping_id} execution failed: {message}")
             return {
                 "success": False,
                 "message": message,
@@ -366,13 +376,68 @@ async def execute_sql_mapping(mapping_id: str) -> Dict[str, Any]:
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error executing SQL mapping: {e}")
+        logger.error(f"Error executing mapping: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/sql-mapping/execute-all")
+@router.post("/mapping/execute-transactional")
+async def execute_mappings_transactionally(mapping_ids: List[str]) -> Dict[str, Any]:
+    """Execute multiple mappings in transactions (grouped by destination table).
+    
+    Args:
+        mapping_ids: List of mapping IDs to execute
+        
+    Returns:
+        Dictionary with execution results for each mapping
+    """
+    try:
+        # Get active workset for connections
+        active_workset = config_manager.get_active_workset()
+        if not active_workset:
+            raise HTTPException(status_code=400, detail="No active working set configured")
+        
+        # Set up connections
+        source_conn = connection_pool.set_source(active_workset.source_connection)
+        dest_conn = connection_pool.set_destination(active_workset.destination_connection)
+        
+        # Get mappings
+        mappings = [config_manager.get_mapping(mid) for mid in mapping_ids]
+        mappings = [m for m in mappings if m is not None and m.enabled]
+        
+        if not mappings:
+            return {
+                "success": True,
+                "message": "No valid enabled mappings found",
+                "results": {}
+            }
+        
+        # Execute using transaction executor
+        results = mapping_executor.execute_mappings_transactionally(
+            mappings,
+            source_conn,
+            dest_conn
+        )
+        
+        total_rows = sum(r.get("rows_processed", 0) for r in results.values())
+        successful = sum(1 for r in results.values() if r.get("success", False))
+        
+        return {
+            "success": True,
+            "message": f"Executed {successful}/{len(results)} mappings successfully",
+            "total_rows_processed": total_rows,
+            "results": results
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error executing mappings transactionally: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/mapping/execute-all-sql")
 async def execute_all_sql_mappings() -> Dict[str, Any]:
-    """Execute all enabled SQL mappings.
+    """Execute all enabled SQL mappings in transactions.
     
     Returns:
         Dictionary with execution results for each mapping
@@ -388,44 +453,25 @@ async def execute_all_sql_mappings() -> Dict[str, Any]:
         dest_conn = connection_pool.set_destination(active_workset.destination_connection)
         
         # Get all enabled SQL mappings
-        sql_mappings = config_manager.get_enabled_sql_mappings()
+        all_mappings = config_manager.get_all_mappings()
+        sql_mappings = [m for m in all_mappings if m.mapping_type == MappingType.SQL and m.enabled]
         
         if not sql_mappings:
             return {
                 "success": True,
                 "message": "No enabled SQL mappings found",
-                "results": []
+                "results": {}
             }
         
-        results = []
-        for sql_mapping in sql_mappings:
-            try:
-                success, message, rows_processed = sql_mapping_service.execute_mapping(
-                    sql_mapping,
-                    source_conn,
-                    dest_conn
-                )
-                
-                results.append({
-                    "mapping_id": sql_mapping.id,
-                    "mapping_name": sql_mapping.name,
-                    "success": success,
-                    "message": message,
-                    "rows_processed": rows_processed
-                })
-                
-            except Exception as e:
-                logger.error(f"Error executing SQL mapping {sql_mapping.id}: {e}")
-                results.append({
-                    "mapping_id": sql_mapping.id,
-                    "mapping_name": sql_mapping.name,
-                    "success": False,
-                    "message": str(e),
-                    "rows_processed": 0
-                })
+        # Execute using transaction executor
+        results = mapping_executor.execute_mappings_transactionally(
+            sql_mappings,
+            source_conn,
+            dest_conn
+        )
         
-        total_rows = sum(r["rows_processed"] for r in results)
-        successful = sum(1 for r in results if r["success"])
+        total_rows = sum(r.get("rows_processed", 0) for r in results.values())
+        successful = sum(1 for r in results.values() if r.get("success", False))
         
         return {
             "success": True,

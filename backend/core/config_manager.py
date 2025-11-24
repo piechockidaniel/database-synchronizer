@@ -315,7 +315,7 @@ class ConfigManager:
         return list(self._mappings.values())
     
     def get_mappings_for_workset(self, workset_id: str) -> List[TableMapping]:
-        """Get all mappings associated with a working set.
+        """Get all table mappings associated with a working set.
         
         Args:
             workset_id: Working set ID
@@ -331,6 +331,21 @@ class ConfigManager:
             self._mappings[mapping_id]
             for mapping_id in workset.table_mappings
             if mapping_id in self._mappings
+        ]
+    
+    def get_sql_mappings_for_workset(self, workset_id: str) -> List['SQLMapping']:
+        """Get all SQL mappings associated with a working set.
+        
+        Args:
+            workset_id: Working set ID
+            
+        Returns:
+            List of SQL mappings
+        """
+        return [
+            mapping
+            for mapping in self._sql_mappings.values()
+            if workset_id in mapping.assigned_worksets
         ]
     
     # LSN State Management

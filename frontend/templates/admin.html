@@ -963,6 +963,30 @@
                             </div>
                         </div>
                         
+                        <div class="mb-3">
+                            <label class="form-label">Schedule (Cron Expression)</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control font-monospace" id="sqlMappingSchedule" 
+                                       placeholder="0 0 * * * (daily at midnight)" 
+                                       pattern="^(\*|([0-9]|[1-5][0-9])|\*\/[0-9]+)\s+(\*|([0-9]|[1-5][0-9])|\*\/[0-9]+)\s+(\*|([0-9]|1[0-9]|2[0-3])|\*\/[0-9]+)\s+(\*|([1-9]|[12][0-9]|3[01])|\*\/[0-9]+)\s+(\*|([0-9]|1[0-2])|\*\/[0-9]+)$">
+                                <button class="btn btn-outline-secondary" type="button" onclick="showCronHelper()" title="Cron Expression Helper">
+                                    <i class="bi bi-question-circle"></i> Helper
+                                </button>
+                            </div>
+                            <small class="text-muted">
+                                Leave empty for manual execution only. Format: minute hour day month weekday
+                                <br>Examples: <code>0 0 * * *</code> (daily), <code>0 */6 * * *</code> (every 6 hours), <code>0 0 * * 0</code> (weekly Sunday)
+                            </small>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Assign to Working Set</label>
+                            <select class="form-select" id="sqlMappingWorkset" multiple>
+                                <option value="">Loading worksets...</option>
+                            </select>
+                            <small class="text-muted">Hold Ctrl/Cmd to select multiple worksets. SQL mappings use connections from assigned worksets.</small>
+                        </div>
+                        
                         <div class="mb-3" id="sqlMappingKeyColumnsContainer" style="display: none;">
                             <label class="form-label">Key Columns (for Upsert)</label>
                             <input type="text" class="form-control" id="sqlMappingKeyColumns" 

@@ -141,6 +141,9 @@ class SQLMapping(BaseModel):
     batch_size: int = Field(default=1000, description="Batch size for processing records")
     timeout_seconds: int = Field(default=300, description="Query timeout in seconds")
     
+    # Workset assignment
+    assigned_worksets: List[str] = Field(default_factory=list, description="List of working set IDs this mapping is assigned to")
+    
     # Metadata
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
@@ -156,7 +159,8 @@ class WorkingSet(BaseModel):
     description: Optional[str] = None
     source_connection: ConnectionConfig
     destination_connection: ConnectionConfig
-    table_mappings: List[str] = Field(default_factory=list, description="List of mapping IDs")
+    table_mappings: List[str] = Field(default_factory=list, description="List of table mapping IDs")
+    sql_mappings: List[str] = Field(default_factory=list, description="List of SQL mapping IDs")
     is_active: bool = False
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)

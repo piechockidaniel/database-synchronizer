@@ -177,53 +177,96 @@ async function enableTableCDC() {
     }
 }
 
-// Mappings
+// Unified Mappings
 async function loadMappings() {
     const listDiv = document.getElementById('mappingsList');
+    const filterType = document.getElementById('mappingTypeFilter')?.value || '';
     
     try {
         listDiv.innerHTML = '<div class="spinner-border"></div> Loading mappings...';
         
-        const response = await fetch(`${API_BASE}/admin/mapping/list`);
+        const url = filterType 
+            ? `${API_BASE}/admin/mapping/list?mapping_type=${filterType}`
+            : `${API_BASE}/admin/mapping/list`;
+        
+        const response = await fetch(url);
         const mappings = await response.json();
         
         if (mappings.length === 0) {
-            listDiv.innerHTML = '<p class="text-muted">No mappings configured.</p>';
+            listDiv.innerHTML = '<p class="text-muted">No mappings configured. Create one to get started.</p>';
             return;
         }
         
         let html = '';
         mappings.forEach(mapping => {
-            // Count mapping types
-            let simpleCount = 0;
-            let complexCount = 0;
-            mapping.column_mappings.forEach(cm => {
-                if (cm.source_columns && cm.source_columns.length > 1) {
-                    complexCount++;
-                } else if (cm.transformation || cm.transformation_type) {
-                    complexCount++;
-                } else {
-                    simpleCount++;
+            const typeBadge = mapping.mapping_type === 'table' 
+                ? '<span class="badge bg-primary">Table</span>'
+                : '<span class="badge bg-info">SQL</span>';
+            
+            let detailsHtml = '';
+            
+            if (mapping.mapping_type === 'table') {
+                // Table mapping details
+                let simpleCount = 0;
+                let complexCount = 0;
+                if (mapping.column_mappings) {
+                    mapping.column_mappings.forEach(cm => {
+                        if (cm.source_columns && cm.source_columns.length > 1) {
+                            complexCount++;
+                        } else if (cm.transformation || cm.transformation_type) {
+                            complexCount++;
+                        } else {
+                            simpleCount++;
+                        }
+                    });
                 }
-            });
+                
+                detailsHtml = `
+                    <strong>Source:</strong> ${mapping.source_schema || 'N/A'}.${mapping.source_table || 'N/A'}<br>
+                    <strong>Columns:</strong> ${mapping.column_mappings ? mapping.column_mappings.length : 0} mapped
+                    ${simpleCount > 0 ? `<span class="badge bg-info ms-1">${simpleCount} direct</span>` : ''}
+                    ${complexCount > 0 ? `<span class="badge bg-warning ms-1">${complexCount} transformed</span>` : ''}
+                `;
+            } else if (mapping.mapping_type === 'sql') {
+                // SQL mapping details
+                detailsHtml = `
+                    <strong>Sync Mode:</strong> <span class="badge bg-secondary">${mapping.sync_mode || 'full'}</span><br>
+                    <strong>Schedule:</strong> ${mapping.sync_schedule || 'Manual only'}<br>
+                    ${mapping.key_columns && mapping.key_columns.length > 0 
+                        ? `<strong>Key Columns:</strong> ${mapping.key_columns.join(', ')}<br>` 
+                        : ''}
+                `;
+            }
             
             html += `
                 <div class="card mb-3">
                     <div class="card-body">
-                        <h5 class="card-title">${mapping.source_schema}.${mapping.source_table} → ${mapping.destination_schema}.${mapping.destination_table}</h5>
-                        <p class="card-text">
-                            <strong>Columns:</strong> ${mapping.column_mappings.length} mapped
-                            ${simpleCount > 0 ? `<span class="badge bg-info ms-1">${simpleCount} direct</span>` : ''}
-                            ${complexCount > 0 ? `<span class="badge bg-warning ms-1">${complexCount} transformed</span>` : ''}
-                            <br>
-                            <strong>Status:</strong> ${mapping.enabled ? '<span class="badge bg-success">Enabled</span>' : '<span class="badge bg-secondary">Disabled</span>'}
-                        </p>
-                        <button class="btn btn-sm btn-info" onclick="viewMappingDetails('${mapping.id}')">
-                            <i class="bi bi-eye"></i> View Details
-                        </button>
-                        <button class="btn btn-sm btn-danger" onclick="deleteMapping('${mapping.id}')">
-                            <i class="bi bi-trash"></i> Delete
-                        </button>
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <h5 class="card-title">
+                                    ${typeBadge} ${mapping.name || mapping.id}
+                                </h5>
+                                <p class="card-text mb-2">
+                                    <strong>Destination:</strong> ${mapping.destination_schema}.${mapping.destination_table}<br>
+                                    ${detailsHtml}
+                                    <strong>Status:</strong> ${mapping.enabled ? '<span class="badge bg-success">Enabled</span>' : '<span class="badge bg-secondary">Disabled</span>'}
+                                    ${mapping.assigned_worksets && mapping.assigned_worksets.length > 0 
+                                        ? `<br><strong>Worksets:</strong> ${mapping.assigned_worksets.length} assigned` 
+                                        : ''}
+                                </p>
+                            </div>
+                            <div>
+                                <button class="btn btn-sm btn-info" onclick="viewMappingDetails('${mapping.id}')">
+                                    <i class="bi bi-eye"></i> View
+                                </button>
+                                <button class="btn btn-sm btn-warning" onclick="showMappingWizardForEdit('${mapping.id}')">
+                                    <i class="bi bi-pencil"></i> Edit
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="deleteMapping('${mapping.id}')">
+                                    <i class="bi bi-trash"></i> Delete
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             `;
@@ -1170,7 +1213,7 @@ async function loadWorksets() {
                         <p class="card-text">
                             ${ws.description ? `<em>${ws.description}</em><br>` : ''}
                             <strong>ID:</strong> <code>${ws.id}</code><br>
-                            <strong>Mappings:</strong> ${ws.table_mappings ? ws.table_mappings.length : 0} table(s), ${ws.sql_mappings ? ws.sql_mappings.length : 0} SQL mapping(s)<br>
+                            <strong>Mappings:</strong> ${ws.mappings ? ws.mappings.length : (ws.table_mappings ? ws.table_mappings.length : 0) + (ws.sql_mappings ? ws.sql_mappings.length : 0)} mapping(s)<br>
                             <strong>Source:</strong> ${ws.source_connection.server}/${ws.source_connection.database}<br>
                             <strong>Destination:</strong> ${ws.destination_connection.server}/${ws.destination_connection.database}
                         </p>
@@ -1227,25 +1270,38 @@ async function viewWorksetDetails(worksetId) {
                 </div>
             </div>
             <hr>
-            <h6 class="mb-3">Table Mappings (${ws.table_mappings ? ws.table_mappings.length : 0})</h6>
+            <h6 class="mb-3">Mappings (${ws.mappings ? ws.mappings.length : (ws.table_mappings ? ws.table_mappings.length : 0) + (ws.sql_mappings ? ws.sql_mappings.length : 0)})</h6>
             <ul class="list-group mb-3">
         `;
         
-        if (ws.table_mappings && ws.table_mappings.length > 0) {
-            ws.table_mappings.forEach(mappingId => {
-                detailsHtml += `<li class="list-group-item"><code>${mappingId}</code></li>`;
-            });
+        const mappingIds = ws.mappings || (ws.table_mappings || []).concat(ws.sql_mappings || []);
+        if (mappingIds && mappingIds.length > 0) {
+            // Load mapping details
+            try {
+                const mappingPromises = mappingIds.map(id => 
+                    fetch(`${API_BASE}/admin/mapping/${id}`).then(r => r.ok ? r.json() : null)
+                );
+                const mappings = await Promise.all(mappingPromises);
+                
+                mappings.forEach(mapping => {
+                    if (mapping) {
+                        const typeBadge = mapping.mapping_type === 'table' 
+                            ? '<span class="badge bg-primary">Table</span>'
+                            : '<span class="badge bg-info">SQL</span>';
+                        detailsHtml += `<li class="list-group-item">${typeBadge} <code>${mapping.id}</code> - ${mapping.name || 'Unnamed'}</li>`;
+                    }
+                });
+            } catch (e) {
+                mappingIds.forEach(mappingId => {
+                    detailsHtml += `<li class="list-group-item"><code>${mappingId}</code></li>`;
+                });
+            }
         } else {
-            detailsHtml += `<li class="list-group-item text-muted">No table mappings assigned</li>`;
+            detailsHtml += `<li class="list-group-item text-muted">No mappings assigned</li>`;
         }
         
         detailsHtml += `
             </ul>
-            <hr>
-            <h6 class="mb-3">SQL Mappings</h6>
-            <div id="worksetSQLMappingsList">
-                <div class="spinner-border spinner-border-sm"></div> Loading SQL mappings...
-            </div>
             <hr>
             <div class="row">
                 <div class="col-md-12">
@@ -1290,8 +1346,6 @@ async function viewWorksetDetails(worksetId) {
             this.remove();
         });
         
-        // Load SQL mappings for this workset
-        loadSQLMappingsForWorkset(worksetId);
         
     } catch (error) {
         showAlert('danger', `Error loading working set details: ${error.message}`);
@@ -1428,18 +1482,25 @@ async function loadAvailableMappingsForWorkset() {
         
         let html = '';
         mappings.forEach(mapping => {
+            const typeBadge = mapping.mapping_type === 'table' 
+                ? '<span class="badge bg-primary">Table</span>'
+                : '<span class="badge bg-info">SQL</span>';
+            
+            let detailsText = '';
+            if (mapping.mapping_type === 'table') {
+                detailsText = `${mapping.source_schema || 'N/A'}.${mapping.source_table || 'N/A'} → ${mapping.destination_schema}.${mapping.destination_table} (${mapping.column_mappings ? mapping.column_mappings.length : 0} columns)`;
+            } else {
+                detailsText = `SQL Query → ${mapping.destination_schema}.${mapping.destination_table} (${mapping.sync_mode || 'full'} mode)`;
+            }
+            
             html += `
                 <div class="form-check">
                     <input class="form-check-input ws-mapping-checkbox" type="checkbox" 
                            value="${mapping.id}" id="ws-map-${mapping.id}" 
                            onchange="updateWorksetMappingCount()">
                     <label class="form-check-label" for="ws-map-${mapping.id}">
-                        <strong>${mapping.id}</strong><br>
-                        <small class="text-muted">
-                            ${mapping.source_schema}.${mapping.source_table} → 
-                            ${mapping.destination_schema}.${mapping.destination_table}
-                            (${mapping.column_mappings.length} columns)
-                        </small>
+                        ${typeBadge} <strong>${mapping.name || mapping.id}</strong><br>
+                        <small class="text-muted">${detailsText}</small>
                     </label>
                 </div>
                 <hr class="my-2">
@@ -1491,25 +1552,25 @@ async function saveWorksetFromModal() {
         password: document.getElementById('wsDestPassword').value || null
     };
     
-    // Get selected mappings
+    // Get selected mappings (unified)
     const selectedMappings = [];
     document.querySelectorAll('.ws-mapping-checkbox:checked').forEach(cb => {
         selectedMappings.push(cb.value);
     });
     
     if (selectedMappings.length === 0) {
-        showAlert('warning', 'Please select at least one table mapping');
+        showAlert('warning', 'Please select at least one mapping');
         return;
     }
     
-    // Build working set object
+    // Build working set object with unified mappings
     const workset = {
         id: wsId,
         name: wsName,
         description: document.getElementById('wsDescription').value || null,
         source_connection: sourceConnection,
         destination_connection: destinationConnection,
-        table_mappings: selectedMappings,
+        mappings: selectedMappings,  // Unified mappings list
         is_active: false  // Will be set via activate endpoint if needed
     };
     

@@ -4,7 +4,7 @@ import logging
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from backend.db.mssql_manager import MSSQLConnection
-from backend.models.schemas import CDCEvent, CDCOperation, TableMapping
+from backend.models.schemas import CDCEvent, CDCOperation, Mapping, MappingType
 from backend.core.duckdb_processor import DuckDBProcessor
 from backend.core.cdc_monitor import cdc_monitor
 from backend.core.latency_monitor import latency_monitor
@@ -72,18 +72,21 @@ class SyncEngine:
                 logger.error(f"Error notifying listener: {e}")
     
     @staticmethod
-    def _get_primary_key_columns(mapping: TableMapping) -> List[str]:
+    def _get_primary_key_columns(mapping: Mapping) -> List[str]:
         """Get primary key columns from mapping.
         
         For now, we'll try to identify likely primary keys from the column mappings.
         In a production system, this should query the destination table schema.
         
         Args:
-            mapping: Table mapping
+            mapping: Unified mapping (must be TABLE type)
             
         Returns:
             List of primary key destination column names
         """
+        if mapping.mapping_type != MappingType.TABLE:
+            return []
+        
         # Simple heuristic: columns containing 'id' are likely primary keys
         pk_columns = [
             cm.destination_column 
@@ -98,12 +101,12 @@ class SyncEngine:
         return pk_columns
     
     @staticmethod
-    def _extract_record_id(data: Dict[str, Any], mapping: TableMapping) -> Optional[str]:
+    def _extract_record_id(data: Dict[str, Any], mapping: Mapping) -> Optional[str]:
         """Extract record identifier from transformed data.
         
         Args:
             data: Transformed data row
-            mapping: Table mapping
+            mapping: Unified mapping (must be TABLE type)
             
         Returns:
             Record ID string or None
@@ -115,16 +118,21 @@ class SyncEngine:
             return '|'.join(pk_values) if pk_values else None
         return None
     
-    async def _apply_change(self, mapping: TableMapping, event: CDCEvent) -> tuple[bool, Optional[str]]:
+    async def _apply_change(self, mapping: Mapping, event: CDCEvent) -> tuple[bool, Optional[str]]:
         """Apply a single CDC change to destination.
         
         Args:
-            mapping: Table mapping
+            mapping: Unified mapping (must be TABLE type for CDC)
             event: CDC event
             
         Returns:
             Tuple of (success, error_message)
         """
+        # Skip SQL mappings - they use different execution path
+        if mapping.mapping_type != MappingType.TABLE:
+            logger.debug(f"Skipping {mapping.mapping_type} mapping {mapping.id} - not applicable for CDC")
+            return True, None
+        
         try:
             # Create staging table in DuckDB
             staging_table = f"staging_{mapping.source_schema}_{mapping.source_table}"

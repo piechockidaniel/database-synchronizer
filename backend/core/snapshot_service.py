@@ -3,7 +3,7 @@ import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from backend.db.mssql_manager import MSSQLConnection
-from backend.models.schemas import TableMapping
+from backend.models.schemas import Mapping, MappingType
 from backend.core.duckdb_processor import DuckDBProcessor
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ class SnapshotService:
     
     def perform_snapshot(
         self,
-        mapping: TableMapping,
+        mapping: Mapping,
         source_connection: MSSQLConnection,
         destination_connection: MSSQLConnection,
         duckdb: DuckDBProcessor
@@ -26,7 +26,7 @@ class SnapshotService:
         """Perform initial snapshot of source table to destination.
         
         Args:
-            mapping: Table mapping configuration
+            mapping: Unified mapping (must be TABLE type)
             source_connection: Source database connection
             destination_connection: Destination database connection
             duckdb: DuckDB processor for transformations
@@ -34,6 +34,10 @@ class SnapshotService:
         Returns:
             Tuple of (success, message, rows_processed)
         """
+        # Validate mapping type
+        if mapping.mapping_type != MappingType.TABLE:
+            return False, f"Snapshot only supported for TABLE mappings (got {mapping.mapping_type})", 0
+        
         try:
             logger.info(f"Starting snapshot for {mapping.source_schema}.{mapping.source_table} -> "
                        f"{mapping.destination_schema}.{mapping.destination_table}")

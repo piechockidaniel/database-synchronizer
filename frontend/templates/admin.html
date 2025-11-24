@@ -55,6 +55,11 @@
                     <i class="bi bi-diagram-3"></i> Visual Designer
                 </button>
             </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="sql-mappings-tab" data-bs-toggle="tab" data-bs-target="#sql-mappings" type="button">
+                    <i class="bi bi-code-square"></i> SQL Mappings
+                </button>
+            </li>
         </ul>
 
         <div class="tab-content mt-3" id="adminTabContent">
@@ -875,11 +880,161 @@
         </div>
     </div>
 
+            <!-- SQL Mappings Tab -->
+            <div class="tab-pane fade" id="sql-mappings" role="tabpanel">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h4><i class="bi bi-code-square"></i> SQL-Based Mappings</h4>
+                    <button class="btn btn-primary" onclick="showSQLMappingModal()">
+                        <i class="bi bi-plus-circle"></i> Create SQL Mapping
+                    </button>
+                </div>
+                
+                <div class="card">
+                    <div class="card-body">
+                        <div id="sqlMappingsList">
+                            <p class="text-muted">Loading SQL mappings...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SQL Mapping Modal -->
+    <div class="modal fade" id="sqlMappingModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-code-square"></i> <span id="sqlMappingModalTitle">Create SQL Mapping</span>
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="sqlMappingForm">
+                        <input type="hidden" id="sqlMappingId">
+                        
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Mapping Name</label>
+                                <input type="text" class="form-control" id="sqlMappingName" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Mapping ID</label>
+                                <input type="text" class="form-control" id="sqlMappingIdInput" required>
+                                <small class="text-muted">Unique identifier (e.g., sql_mapping_001)</small>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Source SQL Query</label>
+                            <textarea class="form-control font-monospace" id="sqlMappingSourceQuery" rows="8" required
+                                      placeholder="SELECT * FROM schema.table WHERE condition"></textarea>
+                            <small class="text-muted">SQL query to extract data from source database</small>
+                        </div>
+                        
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Destination Schema</label>
+                                <input type="text" class="form-control" id="sqlMappingDestSchema" required placeholder="dbo">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Destination Table</label>
+                                <input type="text" class="form-control" id="sqlMappingDestTable" required>
+                            </div>
+                        </div>
+                        
+                        <div class="row mb-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Sync Mode</label>
+                                <select class="form-select" id="sqlMappingSyncMode">
+                                    <option value="full">Full (Truncate & Insert)</option>
+                                    <option value="incremental">Incremental (Append Only)</option>
+                                    <option value="upsert">Upsert (Merge/Update)</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Batch Size</label>
+                                <input type="number" class="form-control" id="sqlMappingBatchSize" value="1000" min="1">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Timeout (seconds)</label>
+                                <input type="number" class="form-control" id="sqlMappingTimeout" value="300" min="1">
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Schedule (Cron Expression)</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control font-monospace" id="sqlMappingSchedule" 
+                                       placeholder="0 0 * * * (daily at midnight)" 
+                                       pattern="^(\*|([0-9]|[1-5][0-9])|\*\/[0-9]+)\s+(\*|([0-9]|[1-5][0-9])|\*\/[0-9]+)\s+(\*|([0-9]|1[0-9]|2[0-3])|\*\/[0-9]+)\s+(\*|([1-9]|[12][0-9]|3[01])|\*\/[0-9]+)\s+(\*|([0-9]|1[0-2])|\*\/[0-9]+)$">
+                                <button class="btn btn-outline-secondary" type="button" onclick="showCronHelper()" title="Cron Expression Helper">
+                                    <i class="bi bi-question-circle"></i> Helper
+                                </button>
+                            </div>
+                            <small class="text-muted">
+                                Leave empty for manual execution only. Format: minute hour day month weekday
+                                <br>Examples: <code>0 0 * * *</code> (daily), <code>0 */6 * * *</code> (every 6 hours), <code>0 0 * * 0</code> (weekly Sunday)
+                            </small>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Assign to Working Set</label>
+                            <select class="form-select" id="sqlMappingWorkset" multiple>
+                                <option value="">Loading worksets...</option>
+                            </select>
+                            <small class="text-muted">Hold Ctrl/Cmd to select multiple worksets. SQL mappings use connections from assigned worksets.</small>
+                        </div>
+                        
+                        <div class="mb-3" id="sqlMappingKeyColumnsContainer" style="display: none;">
+                            <label class="form-label">Key Columns (for Upsert)</label>
+                            <input type="text" class="form-control" id="sqlMappingKeyColumns" 
+                                   placeholder="id, customer_id (comma-separated)">
+                            <small class="text-muted">Column names that uniquely identify a row</small>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="sqlMappingEnabled" checked>
+                                <label class="form-check-label" for="sqlMappingEnabled">Enabled</label>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Custom INSERT Query (Optional)</label>
+                            <textarea class="form-control font-monospace" id="sqlMappingInsertQuery" rows="3"
+                                      placeholder="INSERT INTO [schema].[table] (...) VALUES (?)"></textarea>
+                            <small class="text-muted">Leave empty to auto-generate</small>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Custom UPDATE Query (Optional)</label>
+                            <textarea class="form-control font-monospace" id="sqlMappingUpdateQuery" rows="3"
+                                      placeholder="UPDATE [schema].[table] SET ... WHERE ..."></textarea>
+                            <small class="text-muted">Only used for upsert mode</small>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-info" onclick="testSQLMapping()">
+                        <i class="bi bi-check-circle"></i> Test Query
+                    </button>
+                    <button type="button" class="btn btn-primary" onclick="saveSQLMapping()">
+                        <i class="bi bi-save"></i> Save Mapping
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <!-- jsPlumb for visual workflow designer -->
     <script src="https://cdn.jsdelivr.net/npm/@jsplumb/browser-ui@5.13.2/js/jsplumb.min.js"></script>
     <script src="/static/admin.js"></script>
     <script src="/static/workflow-designer.js"></script>
+    <script src="/static/sql-mappings.js"></script>
 </body>
 </html>
 

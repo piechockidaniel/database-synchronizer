@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from backend.models.schemas import (
     ConnectionConfig, ConnectionTestResponse, DatabaseInfo,
     TableInfo, ColumnInfo, CDCEnableRequest, CDCStatusResponse,
-    TableMapping, WorkingSet, ConnectionType
+    TableMapping, SQLMapping, WorkingSet, ConnectionType
 )
 from backend.db.mssql_manager import MSSQLConnection, connection_pool
 from backend.db.cdc_operations import CDCOperations
@@ -487,6 +487,157 @@ async def get_active_workset():
     except Exception as e:
         logger.error(f"Error getting active workset: {e}")
         return None
+
+
+# SQL Mapping Management
+
+@router.post("/sql-mapping/create")
+async def create_sql_mapping(mapping: SQLMapping):
+    """Create a new SQL-based mapping.
+    
+    Args:
+        mapping: SQL mapping configuration
+        
+    Returns:
+        Success response
+    """
+    try:
+        if config_manager.create_sql_mapping(mapping):
+            return {"success": True, "message": f"SQL mapping '{mapping.name}' created successfully"}
+        else:
+            raise HTTPException(status_code=400, detail="SQL mapping ID already exists")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating SQL mapping: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/sql-mapping/list")
+async def list_sql_mappings() -> List[SQLMapping]:
+    """Get all SQL mappings.
+    
+    Returns:
+        List of SQL mappings
+    """
+    try:
+        return config_manager.get_all_sql_mappings()
+    except Exception as e:
+        logger.error(f"Error listing SQL mappings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/sql-mapping/{mapping_id}")
+async def get_sql_mapping(mapping_id: str) -> SQLMapping:
+    """Get a SQL mapping by ID.
+    
+    Args:
+        mapping_id: Mapping ID
+        
+    Returns:
+        SQL mapping
+    """
+    try:
+        mapping = config_manager.get_sql_mapping(mapping_id)
+        if not mapping:
+            raise HTTPException(status_code=404, detail="SQL mapping not found")
+        return mapping
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting SQL mapping: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/sql-mapping/update")
+async def update_sql_mapping(mapping: SQLMapping):
+    """Update a SQL mapping.
+    
+    Args:
+        mapping: Updated SQL mapping
+        
+    Returns:
+        Success response
+    """
+    try:
+        if config_manager.update_sql_mapping(mapping):
+            return {"success": True, "message": f"SQL mapping '{mapping.name}' updated successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="SQL mapping not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating SQL mapping: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/sql-mapping/{mapping_id}")
+async def delete_sql_mapping(mapping_id: str):
+    """Delete a SQL mapping.
+    
+    Args:
+        mapping_id: Mapping ID to delete
+        
+    Returns:
+        Success response
+    """
+    try:
+        if config_manager.delete_sql_mapping(mapping_id):
+            return {"success": True, "message": "SQL mapping deleted successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="SQL mapping not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting SQL mapping: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/sql-mapping/{mapping_id}/test")
+async def test_sql_mapping(mapping_id: str):
+    """Test a SQL mapping by executing the source query.
+    
+    Args:
+        mapping_id: Mapping ID to test
+        
+    Returns:
+        Test results with sample data
+    """
+    try:
+        mapping = config_manager.get_sql_mapping(mapping_id)
+        if not mapping:
+            raise HTTPException(status_code=404, detail="SQL mapping not found")
+        
+        # Get active workset for source connection
+        active_workset = config_manager.get_active_workset()
+        if not active_workset:
+            raise HTTPException(status_code=400, detail="No active working set")
+        
+        # Connect to source database
+        source_conn = connection_pool.set_source(active_workset.source_connection)
+        if not source_conn.is_connected():
+            source_conn.connect()
+        
+        # Execute source query with LIMIT for testing
+        test_query = f"SELECT TOP 10 * FROM ({mapping.source_query}) AS subquery"
+        try:
+            results = source_conn.execute_query(test_query)
+            return {
+                "success": True,
+                "row_count": len(results),
+                "sample_data": results[:5],  # Return first 5 rows
+                "columns": list(results[0].keys()) if results else []
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error testing SQL mapping: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/workset/{workset_id}")

@@ -4,13 +4,14 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict
-from backend.models.schemas import WorkingSet, TableMapping
+from backend.models.schemas import WorkingSet, TableMapping, SQLMapping
 
 logger = logging.getLogger(__name__)
 
 CONFIG_DIR = Path("config")
 WORKSETS_FILE = CONFIG_DIR / "worksets.json"
 MAPPINGS_FILE = CONFIG_DIR / "mappings.json"
+SQL_MAPPINGS_FILE = CONFIG_DIR / "sql_mappings.json"
 LSN_STATE_FILE = CONFIG_DIR / "lsn_state.json"
 
 
@@ -22,6 +23,7 @@ class ConfigManager:
         self._ensure_config_dir()
         self._worksets: Dict[str, WorkingSet] = {}
         self._mappings: Dict[str, TableMapping] = {}
+        self._sql_mappings: Dict[str, SQLMapping] = {}
         self._lsn_state: Dict[str, str] = {}
         self.load_all()
     
@@ -34,12 +36,14 @@ class ConfigManager:
         """Load all configuration files."""
         self.load_worksets()
         self.load_mappings()
+        self.load_sql_mappings()
         self.load_lsn_state()
     
     def save_all(self):
         """Save all configuration files."""
         self.save_worksets()
         self.save_mappings()
+        self.save_sql_mappings()
         self.save_lsn_state()
     
     # Working Sets Management
@@ -311,7 +315,7 @@ class ConfigManager:
         return list(self._mappings.values())
     
     def get_mappings_for_workset(self, workset_id: str) -> List[TableMapping]:
-        """Get all mappings associated with a working set.
+        """Get all table mappings associated with a working set.
         
         Args:
             workset_id: Working set ID
@@ -327,6 +331,21 @@ class ConfigManager:
             self._mappings[mapping_id]
             for mapping_id in workset.table_mappings
             if mapping_id in self._mappings
+        ]
+    
+    def get_sql_mappings_for_workset(self, workset_id: str) -> List['SQLMapping']:
+        """Get all SQL mappings associated with a working set.
+        
+        Args:
+            workset_id: Working set ID
+            
+        Returns:
+            List of SQL mappings
+        """
+        return [
+            mapping
+            for mapping in self._sql_mappings.values()
+            if workset_id in mapping.assigned_worksets
         ]
     
     # LSN State Management
@@ -450,6 +469,130 @@ class ConfigManager:
         except Exception as e:
             logger.error(f"Error importing configuration: {e}")
             return False
+    
+    # SQL Mappings Management
+    
+    def load_sql_mappings(self):
+        """Load SQL mappings from JSON file."""
+        if SQL_MAPPINGS_FILE.exists():
+            try:
+                with open(SQL_MAPPINGS_FILE, 'r') as f:
+                    data = json.load(f)
+                    self._sql_mappings = {
+                        mapping_id: SQLMapping(**mapping_data)
+                        for mapping_id, mapping_data in data.items()
+                    }
+                logger.info(f"Loaded {len(self._sql_mappings)} SQL mappings")
+            except Exception as e:
+                logger.error(f"Error loading SQL mappings: {e}")
+                self._sql_mappings = {}
+        else:
+            self._sql_mappings = {}
+    
+    def save_sql_mappings(self):
+        """Save SQL mappings to JSON file."""
+        try:
+            data = {
+                mapping_id: mapping.model_dump(mode='json')
+                for mapping_id, mapping in self._sql_mappings.items()
+            }
+            with open(SQL_MAPPINGS_FILE, 'w') as f:
+                json.dump(data, f, indent=2, default=str)
+            logger.info(f"Saved {len(self._sql_mappings)} SQL mappings")
+        except Exception as e:
+            logger.error(f"Error saving SQL mappings: {e}")
+    
+    def create_sql_mapping(self, mapping: SQLMapping) -> bool:
+        """Create a new SQL mapping.
+        
+        Args:
+            mapping: SQL mapping to create
+            
+        Returns:
+            True if created successfully
+        """
+        try:
+            if mapping.id in self._sql_mappings:
+                logger.warning(f"SQL mapping {mapping.id} already exists")
+                return False
+            
+            self._sql_mappings[mapping.id] = mapping
+            self.save_sql_mappings()
+            logger.info(f"Created SQL mapping: {mapping.name}")
+            return True
+        except Exception as e:
+            logger.error(f"Error creating SQL mapping: {e}")
+            return False
+    
+    def update_sql_mapping(self, mapping: SQLMapping) -> bool:
+        """Update an existing SQL mapping.
+        
+        Args:
+            mapping: SQL mapping to update
+            
+        Returns:
+            True if updated successfully
+        """
+        try:
+            if mapping.id not in self._sql_mappings:
+                logger.warning(f"SQL mapping {mapping.id} does not exist")
+                return False
+            
+            mapping.updated_at = datetime.now()
+            self._sql_mappings[mapping.id] = mapping
+            self.save_sql_mappings()
+            logger.info(f"Updated SQL mapping: {mapping.id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error updating SQL mapping: {e}")
+            return False
+    
+    def delete_sql_mapping(self, mapping_id: str) -> bool:
+        """Delete a SQL mapping.
+        
+        Args:
+            mapping_id: Mapping ID to delete
+            
+        Returns:
+            True if deleted successfully
+        """
+        try:
+            if mapping_id in self._sql_mappings:
+                del self._sql_mappings[mapping_id]
+                self.save_sql_mappings()
+                logger.info(f"Deleted SQL mapping: {mapping_id}")
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error deleting SQL mapping: {e}")
+            return False
+    
+    def get_sql_mapping(self, mapping_id: str) -> Optional[SQLMapping]:
+        """Get a SQL mapping by ID.
+        
+        Args:
+            mapping_id: Mapping ID
+            
+        Returns:
+            SQL mapping or None
+        """
+        return self._sql_mappings.get(mapping_id)
+    
+    def get_all_sql_mappings(self) -> List[SQLMapping]:
+        """Get all SQL mappings.
+        
+        Returns:
+            List of all SQL mappings
+        """
+        return list(self._sql_mappings.values())
+    
+    def get_enabled_sql_mappings(self) -> List[SQLMapping]:
+        """Get all enabled SQL mappings.
+        
+        Returns:
+            List of enabled SQL mappings
+        """
+        return [m for m in self._sql_mappings.values() if m.enabled]
 
 
 # Global configuration manager instance

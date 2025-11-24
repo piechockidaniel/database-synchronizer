@@ -1170,7 +1170,7 @@ async function loadWorksets() {
                         <p class="card-text">
                             ${ws.description ? `<em>${ws.description}</em><br>` : ''}
                             <strong>ID:</strong> <code>${ws.id}</code><br>
-                            <strong>Mappings:</strong> ${ws.table_mappings.length} table(s)<br>
+                            <strong>Mappings:</strong> ${ws.table_mappings ? ws.table_mappings.length : 0} table(s), ${ws.sql_mappings ? ws.sql_mappings.length : 0} SQL mapping(s)<br>
                             <strong>Source:</strong> ${ws.source_connection.server}/${ws.source_connection.database}<br>
                             <strong>Destination:</strong> ${ws.destination_connection.server}/${ws.destination_connection.database}
                         </p>
@@ -1227,16 +1227,25 @@ async function viewWorksetDetails(worksetId) {
                 </div>
             </div>
             <hr>
-            <h6 class="mb-3">Table Mappings (${ws.table_mappings.length})</h6>
-            <ul class="list-group">
+            <h6 class="mb-3">Table Mappings (${ws.table_mappings ? ws.table_mappings.length : 0})</h6>
+            <ul class="list-group mb-3">
         `;
         
-        ws.table_mappings.forEach(mappingId => {
-            detailsHtml += `<li class="list-group-item"><code>${mappingId}</code></li>`;
-        });
+        if (ws.table_mappings && ws.table_mappings.length > 0) {
+            ws.table_mappings.forEach(mappingId => {
+                detailsHtml += `<li class="list-group-item"><code>${mappingId}</code></li>`;
+            });
+        } else {
+            detailsHtml += `<li class="list-group-item text-muted">No table mappings assigned</li>`;
+        }
         
         detailsHtml += `
             </ul>
+            <hr>
+            <h6 class="mb-3">SQL Mappings</h6>
+            <div id="worksetSQLMappingsList">
+                <div class="spinner-border spinner-border-sm"></div> Loading SQL mappings...
+            </div>
             <hr>
             <div class="row">
                 <div class="col-md-12">
@@ -1281,8 +1290,54 @@ async function viewWorksetDetails(worksetId) {
             this.remove();
         });
         
+        // Load SQL mappings for this workset
+        loadSQLMappingsForWorkset(worksetId);
+        
     } catch (error) {
         showAlert('danger', `Error loading working set details: ${error.message}`);
+    }
+}
+
+// Load SQL mappings assigned to a workset
+async function loadSQLMappingsForWorkset(worksetId) {
+    try {
+        const response = await fetch(`${API_BASE}/admin/sql-mapping/list`);
+        const allMappings = await response.json();
+        
+        const assignedMappings = allMappings.filter(m => 
+            m.assigned_worksets && m.assigned_worksets.includes(worksetId)
+        );
+        
+        const container = document.getElementById('worksetSQLMappingsList');
+        if (!container) return;
+        
+        if (assignedMappings.length === 0) {
+            container.innerHTML = '<p class="text-muted small">No SQL mappings assigned to this workset</p>';
+            return;
+        }
+        
+        let html = '<ul class="list-group">';
+        assignedMappings.forEach(mapping => {
+            html += `
+                <li class="list-group-item">
+                    <strong>${mapping.name}</strong> (<code>${mapping.id}</code>)
+                    <br><small class="text-muted">
+                        ${mapping.destination_schema}.${mapping.destination_table} | 
+                        Mode: ${mapping.sync_mode} | 
+                        ${mapping.sync_schedule ? `Schedule: <code>${mapping.sync_schedule}</code>` : 'Manual'}
+                    </small>
+                </li>
+            `;
+        });
+        html += '</ul>';
+        container.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Error loading SQL mappings for workset:', error);
+        const container = document.getElementById('worksetSQLMappingsList');
+        if (container) {
+            container.innerHTML = '<p class="text-danger small">Error loading SQL mappings</p>';
+        }
     }
 }
 

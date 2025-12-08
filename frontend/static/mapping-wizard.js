@@ -147,6 +147,15 @@ function updateWizardUI() {
             nextBtn.onclick = nextWizardStep;
         }
     }
+    
+    // Load step-specific data when step becomes active
+    if (currentStep === 4) {
+        // Load worksets when step 4 becomes active
+        loadWorksetsForWizard();
+    } else if (currentStep === 5) {
+        // Populate review content when step 5 becomes active
+        populateReviewContent();
+    }
 }
 
 // Navigate to next step
@@ -269,13 +278,8 @@ function populateWizardForm() {
     document.getElementById('wizardBatchSize').value = mappingData.batch_size || 1000;
     document.getElementById('wizardTimeout').value = mappingData.timeout_seconds || 300;
     
-    // Step 4: Worksets
-    if (mappingData.assigned_worksets && mappingData.assigned_worksets.length > 0) {
-        mappingData.assigned_worksets.forEach(wsId => {
-            const checkbox = document.querySelector(`#wizardWorksets input[value="${wsId}"]`);
-            if (checkbox) checkbox.checked = true;
-        });
-    }
+    // Step 4: Worksets - will be handled when step 4 loads via loadWorksetsForWizard()
+    // The function checks mappingData.assigned_worksets and sets checkboxes accordingly
 }
 
 // Handle mapping type change
@@ -345,7 +349,7 @@ function collectStepData() {
             
         case 4:
             // Worksets
-            const checkedWorksets = Array.from(document.querySelectorAll('#wizardWorksets input:checked'))
+            const checkedWorksets = Array.from(document.querySelectorAll('.wizard-workset-checkbox:checked'))
                 .map(cb => cb.value);
             mappingData.assigned_worksets = checkedWorksets;
             break;
@@ -419,31 +423,239 @@ function loadColumnMappingsForWizard() {
 
 // Load worksets for assignment
 async function loadWorksetsForWizard() {
+    const container = document.getElementById('wizardWorksets');
+    
+    if (!container) return;
+    
+    // Show loading state
+    container.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div> Loading worksets...';
+    
     try {
         const response = await fetch(`${API_BASE}/admin/workset/list`);
-        if (!response.ok) return;
+        
+        if (!response.ok) {
+            container.innerHTML = '<div class="alert alert-warning">Could not load worksets. You can still create the mapping and assign it to worksets later.</div>';
+            return;
+        }
         
         const worksets = await response.json();
-        const container = document.getElementById('wizardWorksets');
         
-        if (!container) return;
+        if (!worksets || worksets.length === 0) {
+            container.innerHTML = `
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> No working sets available yet.
+                    <br><small>You can create working sets in the "Working Sets" tab and assign this mapping later.</small>
+                </div>
+            `;
+            return;
+        }
         
         container.innerHTML = '';
         
         worksets.forEach(workset => {
+            const isChecked = mappingData.assigned_worksets && mappingData.assigned_worksets.includes(workset.id);
             const div = document.createElement('div');
-            div.className = 'form-check';
+            div.className = 'form-check mb-2';
             div.innerHTML = `
-                <input class="form-check-input" type="checkbox" value="${workset.id}" id="ws_${workset.id}">
+                <input class="form-check-input wizard-workset-checkbox" type="checkbox" value="${workset.id}" id="ws_${workset.id}" ${isChecked ? 'checked' : ''}>
                 <label class="form-check-label" for="ws_${workset.id}">
-                    ${workset.name} ${workset.is_active ? '<span class="badge bg-success">Active</span>' : ''}
+                    <strong>${workset.name}</strong>
+                    ${workset.is_active ? '<span class="badge bg-success ms-1">Active</span>' : '<span class="badge bg-secondary ms-1">Inactive</span>'}
+                    <br><small class="text-muted">ID: ${workset.id}</small>
                 </label>
             `;
             container.appendChild(div);
         });
+        
+        // Add help text
+        const helpText = document.createElement('div');
+        helpText.className = 'mt-3 text-muted small';
+        helpText.innerHTML = '<i class="bi bi-info-circle"></i> Select working sets to include this mapping in their synchronization runs.';
+        container.appendChild(helpText);
+        
     } catch (error) {
         console.error('Error loading worksets:', error);
+        container.innerHTML = `
+            <div class="alert alert-warning">
+                <i class="bi bi-exclamation-triangle"></i> Could not load worksets: ${error.message}
+                <br><small>You can still create the mapping and assign it to worksets later.</small>
+            </div>
+        `;
     }
+}
+
+// Populate review content for step 5
+function populateReviewContent() {
+    // First, collect all data from previous steps
+    collectStepData();
+    
+    const container = document.getElementById('wizardReviewContent');
+    if (!container) return;
+    
+    // Collect selected worksets
+    const selectedWorksets = [];
+    document.querySelectorAll('.wizard-workset-checkbox:checked').forEach(cb => {
+        selectedWorksets.push(cb.value);
+    });
+    mappingData.assigned_worksets = selectedWorksets;
+    
+    const typeBadge = mappingData.mapping_type === 'table' 
+        ? '<span class="badge bg-primary">Table-based</span>' 
+        : '<span class="badge bg-info">SQL-based</span>';
+    
+    let html = `
+        <div class="card mb-3">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-info-circle"></i> Basic Information</h6>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <strong>Mapping ID:</strong> ${mappingData.id || '<em class="text-danger">Not set</em>'}<br>
+                        <strong>Name:</strong> ${mappingData.name || '<em class="text-muted">Not set</em>'}<br>
+                        <strong>Type:</strong> ${typeBadge}
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Destination:</strong> ${mappingData.destination_schema}.${mappingData.destination_table}<br>
+                        <strong>Status:</strong> ${mappingData.enabled ? '<span class="badge bg-success">Enabled</span>' : '<span class="badge bg-secondary">Disabled</span>'}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Type-specific details
+    if (mappingData.mapping_type === 'table') {
+        html += `
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-table"></i> Table Configuration</h6>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <strong>Source:</strong> ${mappingData.source_schema}.${mappingData.source_table}<br>
+                            <strong>Column Mappings:</strong> ${mappingData.column_mappings ? mappingData.column_mappings.length : 0} configured
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Sync Operations:</strong><br>
+                            ${mappingData.sync_inserts ? '<span class="badge bg-success me-1"><i class="bi bi-plus"></i> Inserts</span>' : ''}
+                            ${mappingData.sync_updates ? '<span class="badge bg-warning me-1"><i class="bi bi-pencil"></i> Updates</span>' : ''}
+                            ${mappingData.sync_deletes ? '<span class="badge bg-danger me-1"><i class="bi bi-trash"></i> Deletes</span>' : ''}
+                        </div>
+                    </div>
+                    <hr>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <strong>Initial Snapshot:</strong> ${mappingData.perform_initial_snapshot ? '<span class="badge bg-info">Yes</span>' : '<span class="badge bg-secondary">No</span>'}
+                        </div>
+                        <div class="col-md-6">
+                            <strong>DuckDB Transformation:</strong> ${mappingData.use_duckdb_transformation ? '<span class="badge bg-info">Yes</span>' : '<span class="badge bg-secondary">No</span>'}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    } else if (mappingData.mapping_type === 'sql') {
+        html += `
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-code-square"></i> SQL Configuration</h6>
+                </div>
+                <div class="card-body">
+                    <div class="mb-2">
+                        <strong>Source Query:</strong>
+                        <pre class="bg-light p-2 mt-1 small" style="max-height: 150px; overflow-y: auto;">${mappingData.source_query || '<em class="text-danger">Not set</em>'}</pre>
+                    </div>
+                    ${mappingData.key_columns && mappingData.key_columns.length > 0 ? `
+                        <div class="mb-2">
+                            <strong>Key Columns:</strong> ${mappingData.key_columns.join(', ')}
+                        </div>
+                    ` : ''}
+                    ${mappingData.insert_query ? `
+                        <div class="mb-2">
+                            <strong>Custom INSERT:</strong> <span class="badge bg-info">Configured</span>
+                        </div>
+                    ` : ''}
+                    ${mappingData.update_query ? `
+                        <div class="mb-2">
+                            <strong>Custom UPDATE:</strong> <span class="badge bg-info">Configured</span>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    }
+    
+    // Sync options
+    html += `
+        <div class="card mb-3">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-gear"></i> Sync Options</h6>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <strong>Sync Mode:</strong> <span class="badge bg-secondary">${mappingData.sync_mode || 'full'}</span>
+                    </div>
+                    <div class="col-md-4">
+                        <strong>Batch Size:</strong> ${mappingData.batch_size || 1000}
+                    </div>
+                    <div class="col-md-4">
+                        <strong>Timeout:</strong> ${mappingData.timeout_seconds || 300}s
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <strong>Schedule:</strong> ${mappingData.sync_schedule ? `<code>${mappingData.sync_schedule}</code>` : '<span class="text-muted">Manual only</span>'}
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Working sets
+    html += `
+        <div class="card mb-3">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-collection"></i> Working Sets</h6>
+            </div>
+            <div class="card-body">
+                ${selectedWorksets.length > 0 
+                    ? `<strong>Assigned to ${selectedWorksets.length} working set(s):</strong><br>${selectedWorksets.map(id => `<span class="badge bg-primary me-1">${id}</span>`).join('')}`
+                    : '<span class="text-muted">Not assigned to any working sets</span>'
+                }
+            </div>
+        </div>
+    `;
+    
+    // Warning for missing required fields
+    let warnings = [];
+    if (!mappingData.id) warnings.push('Mapping ID is required');
+    if (!mappingData.name) warnings.push('Mapping Name is required');
+    if (mappingData.mapping_type === 'table' && (!mappingData.column_mappings || mappingData.column_mappings.length === 0)) {
+        warnings.push('At least one column mapping is required for table-based mappings');
+    }
+    if (mappingData.mapping_type === 'sql' && !mappingData.source_query) {
+        warnings.push('Source query is required for SQL-based mappings');
+    }
+    
+    if (warnings.length > 0) {
+        html += `
+            <div class="alert alert-warning">
+                <strong><i class="bi bi-exclamation-triangle"></i> Please address the following before saving:</strong>
+                <ul class="mb-0 mt-2">
+                    ${warnings.map(w => `<li>${w}</li>`).join('')}
+                </ul>
+            </div>
+        `;
+    } else {
+        html += `
+            <div class="alert alert-success">
+                <i class="bi bi-check-circle"></i> Configuration looks good! Click "Save Mapping" to create the mapping.
+            </div>
+        `;
+    }
+    
+    container.innerHTML = html;
 }
 
 // Show cron helper
@@ -511,4 +723,6 @@ function showAlert(type, message) {
         setTimeout(() => alertDiv.remove(), 5000);
     }
 }
+
+
 

@@ -19,7 +19,7 @@ class ConnectionConfig(BaseModel):
     username: Optional[str] = Field(None, description="Username for authentication")
     password: Optional[str] = Field(None, description="Password for authentication")
     use_windows_auth: bool = Field(default=True, description="Use Windows authentication")
-    port: int = Field(default=1433, description="Server port")
+    port: Optional[int] = Field(default=1433, description="Server port")
     driver: str = Field(default="ODBC Driver 18 for SQL Server", description="ODBC driver name")
 
 

@@ -1,7 +1,12 @@
-// Unified Mapping Creation Wizard
-const API_BASE = '/api';
+// Unified Mapping Creation Wizard - Redesigned
 
+// Wizard state
 let currentStep = 1;
+let wizardSourceColumns = [];
+let wizardDestColumns = [];
+let wizardColumnMappingCounter = 0;
+
+// Wizard data model
 let mappingData = {
     mapping_type: null,
     // Common fields
@@ -31,12 +36,19 @@ let mappingData = {
     insert_query: null,
     update_query: null,
     delete_query: null,
-    key_columns: []
+    key_columns: [],
+    // Connection info for testing (not saved with mapping)
+    _test_connection: null,
+    _test_connection_type: 'source' // 'source' or 'workset'
 };
 
 // Initialize wizard
 function initMappingWizard() {
     currentStep = 1;
+    wizardSourceColumns = [];
+    wizardDestColumns = [];
+    wizardColumnMappingCounter = 0;
+
     mappingData = {
         mapping_type: null,
         id: '',
@@ -63,8 +75,11 @@ function initMappingWizard() {
         insert_query: null,
         update_query: null,
         delete_query: null,
-        key_columns: []
+        key_columns: [],
+        _test_connection: null,
+        _test_connection_type: 'source'
     };
+
     updateWizardUI();
 }
 
@@ -88,18 +103,17 @@ async function loadMappingForEdit(mappingId) {
     try {
         const response = await fetch(`${API_BASE}/admin/mapping/${mappingId}`);
         if (!response.ok) throw new Error('Failed to load mapping');
-        
+
         const mapping = await response.json();
-        
+
         // Populate mappingData
         Object.keys(mapping).forEach(key => {
             if (mapping[key] !== null && mapping[key] !== undefined) {
                 mappingData[key] = mapping[key];
             }
         });
-        
-        // Set current step based on mapping type
-        currentStep = mapping.mapping_type === 'table' ? 2 : 2;
+
+        currentStep = 2; // Start at configuration step for editing
         updateWizardUI();
         populateWizardForm();
     } catch (error) {
@@ -123,21 +137,21 @@ function updateWizardUI() {
                 stepEl.classList.remove('active', 'completed');
             }
         }
-        
+
         const stepContent = document.getElementById(`wizardStepContent${i}`);
         if (stepContent) {
             stepContent.style.display = i === currentStep ? 'block' : 'none';
         }
     }
-    
+
     // Update buttons
     const prevBtn = document.getElementById('wizardPrevBtn');
     const nextBtn = document.getElementById('wizardNextBtn');
-    
+
     if (prevBtn) {
         prevBtn.disabled = currentStep === 1;
     }
-    
+
     if (nextBtn) {
         if (currentStep === 5) {
             nextBtn.innerHTML = '<i class="bi bi-save"></i> Save Mapping';
@@ -147,19 +161,25 @@ function updateWizardUI() {
             nextBtn.onclick = nextWizardStep;
         }
     }
-    
+
     // Load step-specific data when step becomes active
-    if (currentStep === 4) {
-        // Load worksets when step 4 becomes active
+    if (currentStep === 2) {
+        // Load worksets for connection selection
+        loadWorksetsForConnectionSelector();
+    } else if (currentStep === 4) {
+        // Load worksets for assignment
         loadWorksetsForWizard();
     } else if (currentStep === 5) {
-        // Populate review content when step 5 becomes active
+        // Populate review content
         populateReviewContent();
     }
 }
 
 // Navigate to next step
 function nextWizardStep() {
+    // Collect current step data before validation
+    collectStepData();
+
     if (validateCurrentStep()) {
         if (currentStep < 5) {
             currentStep++;
@@ -171,6 +191,7 @@ function nextWizardStep() {
 // Navigate to previous step
 function prevWizardStep() {
     if (currentStep > 1) {
+        collectStepData(); // Save current step data
         currentStep--;
         updateWizardUI();
     }
@@ -186,39 +207,52 @@ function validateCurrentStep() {
                 return false;
             }
             return true;
-            
+
         case 2:
             // Step 2: Configure based on type
+            if (!mappingData.id || !mappingData.name) {
+                showAlert('warning', 'Please provide Mapping ID and Name');
+                return false;
+            }
+
+            if (!mappingData.destination_schema || !mappingData.destination_table) {
+                showAlert('warning', 'Please provide destination schema and table');
+                return false;
+            }
+
             if (mappingData.mapping_type === 'table') {
-                if (!mappingData.source_schema || !mappingData.source_table ||
-                    !mappingData.destination_schema || !mappingData.destination_table) {
-                    showAlert('warning', 'Please fill in all required table fields');
+                if (!mappingData.source_schema || !mappingData.source_table) {
+                    showAlert('warning', 'Please provide source schema and table');
                     return false;
                 }
+
+                // Collect column mappings before validation
+                collectWizardColumnMappings();
+
                 if (!mappingData.column_mappings || mappingData.column_mappings.length === 0) {
-                    showAlert('warning', 'Please add at least one column mapping');
+                    showAlert('warning', 'Please add at least one column mapping. Use "Load Columns" and "Auto-map" to get started.');
                     return false;
                 }
             } else if (mappingData.mapping_type === 'sql') {
-                if (!mappingData.source_query || !mappingData.destination_schema || !mappingData.destination_table) {
-                    showAlert('warning', 'Please fill in source query, destination schema, and destination table');
+                if (!mappingData.source_query) {
+                    showAlert('warning', 'Please provide a source SQL query');
                     return false;
                 }
             }
             return true;
-            
+
         case 3:
             // Step 3: Sync options (always valid)
             return true;
-            
+
         case 4:
             // Step 4: Assign to worksets (optional)
             return true;
-            
+
         case 5:
             // Step 5: Review (always valid)
             return true;
-            
+
         default:
             return true;
     }
@@ -231,14 +265,14 @@ function populateWizardForm() {
         document.getElementById('wizardMappingType').value = mappingData.mapping_type;
         onMappingTypeChange();
     }
-    
+
     // Common fields
     document.getElementById('wizardMappingId').value = mappingData.id || '';
     document.getElementById('wizardMappingName').value = mappingData.name || '';
     document.getElementById('wizardDestSchema').value = mappingData.destination_schema || '';
     document.getElementById('wizardDestTable').value = mappingData.destination_table || '';
     document.getElementById('wizardEnabled').checked = mappingData.enabled !== false;
-    
+
     // TABLE-specific fields
     if (mappingData.mapping_type === 'table') {
         document.getElementById('wizardSrcSchema').value = mappingData.source_schema || '';
@@ -248,22 +282,16 @@ function populateWizardForm() {
         document.getElementById('wizardSyncInserts').checked = mappingData.sync_inserts !== false;
         document.getElementById('wizardPerformSnapshot').checked = mappingData.perform_initial_snapshot === true;
         document.getElementById('wizardUseDuckDB').checked = mappingData.use_duckdb_transformation === true;
-        
-        // Load column mappings
-        loadColumnMappingsForWizard();
     }
-    
+
     // SQL-specific fields
     if (mappingData.mapping_type === 'sql') {
         document.getElementById('wizardSourceQuery').value = mappingData.source_query || '';
-        document.getElementById('wizardSyncMode').value = mappingData.sync_mode || 'full';
-        document.getElementById('wizardBatchSize').value = mappingData.batch_size || 1000;
-        document.getElementById('wizardTimeout').value = mappingData.timeout_seconds || 300;
-        
+
         if (mappingData.key_columns && mappingData.key_columns.length > 0) {
             document.getElementById('wizardKeyColumns').value = mappingData.key_columns.join(', ');
         }
-        
+
         if (mappingData.insert_query) {
             document.getElementById('wizardInsertQuery').value = mappingData.insert_query;
         }
@@ -271,26 +299,23 @@ function populateWizardForm() {
             document.getElementById('wizardUpdateQuery').value = mappingData.update_query;
         }
     }
-    
+
     // Step 3: Sync options
     document.getElementById('wizardSyncMode').value = mappingData.sync_mode || 'full';
     document.getElementById('wizardSyncSchedule').value = mappingData.sync_schedule || '';
     document.getElementById('wizardBatchSize').value = mappingData.batch_size || 1000;
     document.getElementById('wizardTimeout').value = mappingData.timeout_seconds || 300;
-    
-    // Step 4: Worksets - will be handled when step 4 loads via loadWorksetsForWizard()
-    // The function checks mappingData.assigned_worksets and sets checkboxes accordingly
 }
 
 // Handle mapping type change
 function onMappingTypeChange() {
     const mappingType = document.getElementById('wizardMappingType').value;
     mappingData.mapping_type = mappingType;
-    
-    // Show/hide type-specific sections
+
+    // Show/hide type-specific sections in step 2
     const tableSection = document.getElementById('wizardTableSection');
     const sqlSection = document.getElementById('wizardSQLSection');
-    
+
     if (mappingType === 'table') {
         if (tableSection) tableSection.style.display = 'block';
         if (sqlSection) sqlSection.style.display = 'none';
@@ -309,51 +334,76 @@ function collectStepData() {
         case 1:
             mappingData.mapping_type = document.getElementById('wizardMappingType').value;
             break;
-            
+
         case 2:
             // Common fields
-            mappingData.id = document.getElementById('wizardMappingId').value;
-            mappingData.name = document.getElementById('wizardMappingName').value;
-            mappingData.destination_schema = document.getElementById('wizardDestSchema').value;
-            mappingData.destination_table = document.getElementById('wizardDestTable').value;
+            mappingData.id = document.getElementById('wizardMappingId').value.trim();
+            mappingData.name = document.getElementById('wizardMappingName').value.trim();
+            mappingData.destination_schema = document.getElementById('wizardDestSchema').value.trim();
+            mappingData.destination_table = document.getElementById('wizardDestTable').value.trim();
             mappingData.enabled = document.getElementById('wizardEnabled').checked;
-            
+
+            // Collect connection info for testing
+            const connType = document.getElementById('wizardConnectionType').value;
+            mappingData._test_connection_type = connType;
+
+            if (connType === 'workset') {
+                const worksetId = document.getElementById('wizardConnectionWorkset').value;
+                mappingData._test_connection = {type: 'workset', workset_id: worksetId};
+            } else {
+                // Collect manual connection details
+                const portValue = document.getElementById('wizardTestPort').value.trim();
+                mappingData._test_connection = {
+                    type: 'manual',
+                    server: document.getElementById('wizardTestServer').value.trim(),
+                    database: document.getElementById('wizardTestDatabase').value.trim(),
+                    username: document.getElementById('wizardTestUsername').value.trim(),
+                    password: document.getElementById('wizardTestPassword').value,
+                    use_windows_auth: document.getElementById('wizardTestWindowsAuth').checked
+                };
+                // Only include port if specified
+                if (portValue) {
+                    mappingData._test_connection.port = parseInt(portValue);
+                }
+            }
+
             if (mappingData.mapping_type === 'table') {
                 // TABLE-specific
-                mappingData.source_schema = document.getElementById('wizardSrcSchema').value;
-                mappingData.source_table = document.getElementById('wizardSrcTable').value;
+                mappingData.source_schema = document.getElementById('wizardSrcSchema').value.trim();
+                mappingData.source_table = document.getElementById('wizardSrcTable').value.trim();
                 mappingData.sync_deletes = document.getElementById('wizardSyncDeletes').checked;
                 mappingData.sync_updates = document.getElementById('wizardSyncUpdates').checked;
                 mappingData.sync_inserts = document.getElementById('wizardSyncInserts').checked;
                 mappingData.perform_initial_snapshot = document.getElementById('wizardPerformSnapshot').checked;
                 mappingData.use_duckdb_transformation = document.getElementById('wizardUseDuckDB').checked;
-                
-                // Column mappings are collected separately
+
+                // Column mappings collected separately
+                collectWizardColumnMappings();
             } else if (mappingData.mapping_type === 'sql') {
                 // SQL-specific
-                mappingData.source_query = document.getElementById('wizardSourceQuery').value;
+                mappingData.source_query = document.getElementById('wizardSourceQuery').value.trim();
                 const keyCols = document.getElementById('wizardKeyColumns').value;
                 mappingData.key_columns = keyCols ? keyCols.split(',').map(s => s.trim()).filter(s => s) : [];
-                mappingData.insert_query = document.getElementById('wizardInsertQuery').value || null;
-                mappingData.update_query = document.getElementById('wizardUpdateQuery').value || null;
+                mappingData.insert_query = document.getElementById('wizardInsertQuery').value.trim() || null;
+                mappingData.update_query = document.getElementById('wizardUpdateQuery').value.trim() || null;
             }
             break;
-            
+
         case 3:
             // Sync options
             mappingData.sync_mode = document.getElementById('wizardSyncMode').value;
-            mappingData.sync_schedule = document.getElementById('wizardSyncSchedule').value || null;
+            mappingData.sync_schedule = document.getElementById('wizardSyncSchedule').value.trim() || null;
             mappingData.batch_size = parseInt(document.getElementById('wizardBatchSize').value) || 1000;
             mappingData.timeout_seconds = parseInt(document.getElementById('wizardTimeout').value) || 300;
             break;
-            
+
         case 4:
             // Worksets
             const checkedWorksets = Array.from(document.querySelectorAll('.wizard-workset-checkbox:checked'))
                 .map(cb => cb.value);
             mappingData.assigned_worksets = checkedWorksets;
             break;
-            
+
         case 5:
             // Review - no data to collect
             break;
@@ -364,42 +414,49 @@ function collectStepData() {
 async function saveMappingFromWizard() {
     // Collect all step data
     for (let i = 1; i <= 4; i++) {
+        const savedStep = currentStep;
         currentStep = i;
         collectStepData();
+        currentStep = savedStep;
     }
-    
+
     // Final validation
     if (!mappingData.id || !mappingData.name) {
         showAlert('danger', 'Mapping ID and Name are required');
         return;
     }
-    
+
     if (mappingData.mapping_type === 'table' && (!mappingData.column_mappings || mappingData.column_mappings.length === 0)) {
         showAlert('danger', 'Table mappings require at least one column mapping');
         return;
     }
-    
+
+    if (mappingData.mapping_type === 'sql' && !mappingData.source_query) {
+        showAlert('danger', 'SQL mappings require a source query');
+        return;
+    }
+
+    // Remove test connection info before saving
+    const dataToSave = {...mappingData};
+    delete dataToSave._test_connection;
+    delete dataToSave._test_connection_type;
+
     try {
-        const url = mappingData.id && document.getElementById('wizardMappingId').hasAttribute('data-edit-id') 
-            ? `${API_BASE}/admin/mapping/update`
-            : `${API_BASE}/admin/mapping/create`;
-        
-        const method = mappingData.id && document.getElementById('wizardMappingId').hasAttribute('data-edit-id')
-            ? 'PUT'
-            : 'POST';
-        
+        const url = `${API_BASE}/admin/mapping/create`;
+        const method = 'POST';
+
         const response = await fetch(url, {
             method: method,
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(mappingData)
+            body: JSON.stringify(dataToSave)
         });
-        
+
         const result = await response.json();
-        
+
         if (result.success || response.ok) {
             showAlert('success', result.message || 'Mapping saved successfully');
             bootstrap.Modal.getInstance(document.getElementById('mappingWizardModal')).hide();
-            
+
             // Refresh mappings list
             if (typeof loadMappings === 'function') {
                 loadMappings();
@@ -412,46 +469,395 @@ async function saveMappingFromWizard() {
     }
 }
 
-// Load column mappings for wizard (TABLE type)
-function loadColumnMappingsForWizard() {
-    // This would integrate with existing column mapping UI
-    // For now, we'll use the existing column mapping functions
-    if (typeof loadColumnMappings === 'function') {
-        // Use existing column mapping functionality
+// Connection selector functions
+function onWizardConnectionTypeChange() {
+    const connType = document.getElementById('wizardConnectionType').value;
+    const worksetDiv = document.getElementById('wizardConnectionWorksetDiv');
+    const manualDiv = document.getElementById('wizardConnectionManualDiv');
+
+    if (connType === 'workset') {
+        worksetDiv.style.display = 'block';
+        manualDiv.style.display = 'none';
+    } else {
+        worksetDiv.style.display = 'none';
+        manualDiv.style.display = 'block';
+    }
+}
+
+function onWizardTestWindowsAuthChange() {
+    const useWinAuth = document.getElementById('wizardTestWindowsAuth').checked;
+    const credDiv = document.getElementById('wizardTestCredentialsDiv');
+    credDiv.style.display = useWinAuth ? 'none' : 'block';
+}
+
+async function loadWorksetsForConnectionSelector() {
+    const select = document.getElementById('wizardConnectionWorkset');
+    if (!select) return;
+
+    try {
+        const response = await fetch(`${API_BASE}/admin/workset/list`);
+        if (!response.ok) return;
+
+        const worksets = await response.json();
+
+        select.innerHTML = '<option value="">-- Select Working Set --</option>';
+        worksets.forEach(ws => {
+            const option = document.createElement('option');
+            option.value = ws.id;
+            option.textContent = `${ws.name} ${ws.is_active ? '(Active)' : ''}`;
+            select.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error loading worksets:', error);
+    }
+}
+
+// Column mapping functions for wizard
+async function wizardLoadColumns() {
+    // Get connection info
+    const connType = document.getElementById('wizardConnectionType').value;
+    let connectionConfig;
+
+    if (connType === 'workset') {
+        const worksetId = document.getElementById('wizardConnectionWorkset').value;
+        if (!worksetId) {
+            showAlert('warning', 'Please select a working set first');
+            return;
+        }
+
+        // Fetch workset to get connection
+        try {
+            const response = await fetch(`${API_BASE}/admin/workset/${worksetId}`);
+            if (!response.ok) throw new Error('Failed to load workset');
+            const workset = await response.json();
+            connectionConfig = workset.source_connection;
+        } catch (error) {
+            showAlert('danger', `Error loading workset: ${error.message}`);
+            return;
+        }
+    } else {
+        // Manual connection
+        const portValue = document.getElementById('wizardTestPort').value.trim();
+        connectionConfig = {
+            name: 'wizard_test',
+            server: document.getElementById('wizardTestServer').value.trim(),
+            database: document.getElementById('wizardTestDatabase').value.trim(),
+            username: document.getElementById('wizardTestUsername').value.trim(),
+            password: document.getElementById('wizardTestPassword').value,
+            use_windows_auth: document.getElementById('wizardTestWindowsAuth').checked
+        };
+
+        // Only include port if specified
+        if (portValue) {
+            connectionConfig.port = parseInt(portValue);
+        }
+
+        if (!connectionConfig.server || !connectionConfig.database) {
+            showAlert('warning', 'Please provide server and database details');
+            return;
+        }
+    }
+
+    // Get schema and table names
+    const srcSchema = document.getElementById('wizardSrcSchema').value.trim();
+    const srcTable = document.getElementById('wizardSrcTable').value.trim();
+    const destSchema = document.getElementById('wizardDestSchema').value.trim();
+    const destTable = document.getElementById('wizardDestTable').value.trim();
+
+    if (!srcSchema || !srcTable || !destSchema || !destTable) {
+        showAlert('warning', 'Please fill in source and destination schema/table names first');
+        return;
+    }
+
+    try {
+        // Load source columns
+        const srcResponse = await fetch(`${API_BASE}/admin/scan/columns?connection_type=source&schema=${srcSchema}&table=${srcTable}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(connectionConfig)
+        });
+
+        // For destination, we'll use the same connection for now (user can change in workset)
+        const destResponse = await fetch(`${API_BASE}/admin/scan/columns?connection_type=source&schema=${destSchema}&table=${destTable}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(connectionConfig)
+        });
+
+        if (!srcResponse.ok || !destResponse.ok) {
+            throw new Error('Failed to load columns');
+        }
+
+        wizardSourceColumns = await srcResponse.json();
+        wizardDestColumns = await destResponse.json();
+
+        showAlert('success', `Loaded ${wizardSourceColumns.length} source columns and ${wizardDestColumns.length} destination columns`);
+
+        // Clear existing mappings
+        wizardClearColumnMappings();
+
+    } catch (error) {
+        showAlert('danger', `Error loading columns: ${error.message}`);
+    }
+}
+
+function wizardAutoMapColumns() {
+    if (wizardSourceColumns.length === 0 || wizardDestColumns.length === 0) {
+        showAlert('warning', 'Please load columns first');
+        return;
+    }
+
+    wizardClearColumnMappings();
+
+    let mappedCount = 0;
+    wizardSourceColumns.forEach(srcCol => {
+        const matchingDestCol = wizardDestColumns.find(destCol =>
+            destCol.column_name.toLowerCase() === srcCol.column_name.toLowerCase()
+        );
+
+        if (matchingDestCol) {
+            wizardAddColumnMapping([srcCol.column_name], matchingDestCol.column_name);
+            mappedCount++;
+        }
+    });
+
+    if (mappedCount > 0) {
+        showAlert('success', `Auto-mapped ${mappedCount} matching columns`);
+    } else {
+        showAlert('info', 'No matching columns found');
+    }
+}
+
+function wizardAddColumnMapping(preSelectedSources = [], destCol = '', transformation = '', ignoreChanges = false) {
+    if (wizardSourceColumns.length === 0 || wizardDestColumns.length === 0) {
+        showAlert('warning', 'Please load columns first');
+        return;
+    }
+
+    const container = document.getElementById('wizardColumnMappingsContainer');
+
+    // If this is the first mapping, clear the placeholder text
+    if (wizardColumnMappingCounter === 0) {
+        container.innerHTML = '';
+    }
+
+    const mappingId = wizardColumnMappingCounter++;
+
+    // Convert single source to array
+    if (typeof preSelectedSources === 'string' && preSelectedSources) {
+        preSelectedSources = [preSelectedSources];
+    }
+
+    const mappingRow = document.createElement('div');
+    mappingRow.className = 'card mb-2 wizard-column-mapping-row';
+    mappingRow.id = `wizard-mapping-row-${mappingId}`;
+    mappingRow.innerHTML = `
+        <div class="card-body p-2">
+            <div class="row align-items-center">
+                <div class="col-md-5">
+                    <label class="form-label small mb-1"><strong>Source Column(s)</strong></label>
+                    <select class="form-select form-select-sm wizard-src-col-${mappingId}" multiple size="3">
+                        ${wizardSourceColumns.map(col => {
+                            const isSelected = preSelectedSources.includes(col.column_name);
+                            return `<option value="${col.column_name}" ${isSelected ? 'selected' : ''}>${col.column_name} (${col.data_type})</option>`;
+                        }).join('')}
+                    </select>
+                </div>
+                <div class="col-md-1 text-center">
+                    <i class="bi bi-arrow-right"></i>
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label small mb-1"><strong>Destination</strong></label>
+                    <select class="form-select form-select-sm wizard-dest-col-${mappingId}">
+                        <option value="">-- Select --</option>
+                        ${wizardDestColumns.map(col =>
+                            `<option value="${col.column_name}" ${col.column_name === destCol ? 'selected' : ''}>${col.column_name} (${col.data_type})</option>`
+                        ).join('')}
+                    </select>
+                    <input type="text" class="form-control form-control-sm mt-1 wizard-trans-${mappingId}" placeholder="Transformation (optional)" value="${transformation || ''}">
+                    <div class="form-check form-check-inline mt-1">
+                        <input class="form-check-input wizard-ignore-${mappingId}" type="checkbox" ${ignoreChanges ? 'checked' : ''}>
+                        <label class="form-check-label small">Ignore changes</label>
+                    </div>
+                </div>
+                <div class="col-md-1 text-end">
+                    <button type="button" class="btn btn-sm btn-danger" onclick="wizardRemoveColumnMapping(${mappingId})">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    container.appendChild(mappingRow);
+}
+
+function wizardRemoveColumnMapping(mappingId) {
+    const row = document.getElementById(`wizard-mapping-row-${mappingId}`);
+    if (row) {
+        row.remove();
+    }
+
+    const container = document.getElementById('wizardColumnMappingsContainer');
+    if (container.querySelectorAll('.wizard-column-mapping-row').length === 0) {
+        container.innerHTML = '<p class="text-muted">No column mappings. Click "Load Columns" and "Auto-map" to start.</p>';
+        wizardColumnMappingCounter = 0;
+    }
+}
+
+function wizardClearColumnMappings() {
+    const container = document.getElementById('wizardColumnMappingsContainer');
+    container.innerHTML = '<p class="text-muted">No column mappings. Click "Load Columns" and "Auto-map" to start.</p>';
+    wizardColumnMappingCounter = 0;
+}
+
+function collectWizardColumnMappings() {
+    const columnMappings = [];
+    const mappingRows = document.querySelectorAll('.wizard-column-mapping-row');
+
+    mappingRows.forEach(row => {
+        const mappingId = row.id.replace('wizard-mapping-row-', '');
+
+        const srcSelect = row.querySelector(`.wizard-src-col-${mappingId}`);
+        const destSelect = row.querySelector(`.wizard-dest-col-${mappingId}`);
+        const transInput = row.querySelector(`.wizard-trans-${mappingId}`);
+        const ignoreCheck = row.querySelector(`.wizard-ignore-${mappingId}`);
+
+        const sourceColumns = Array.from(srcSelect.selectedOptions).map(opt => opt.value);
+        const destColumn = destSelect.value;
+
+        if (sourceColumns.length > 0 && destColumn) {
+            const mapping = {
+                source_columns: sourceColumns,
+                destination_column: destColumn,
+                ignore_changes: ignoreCheck.checked
+            };
+
+            // Add transformation if provided
+            const transValue = transInput.value.trim();
+            if (transValue) {
+                mapping.transformation = transValue;
+            }
+
+            columnMappings.push(mapping);
+        }
+    });
+
+    mappingData.column_mappings = columnMappings;
+    return columnMappings;
+}
+
+// Test SQL query
+async function testSQLQuery() {
+    const query = document.getElementById('wizardSourceQuery').value.trim();
+    if (!query) {
+        showAlert('warning', 'Please enter a SQL query first');
+        return;
+    }
+
+    // Get connection info
+    const connType = document.getElementById('wizardConnectionType').value;
+    let connectionConfig;
+
+    if (connType === 'workset') {
+        const worksetId = document.getElementById('wizardConnectionWorkset').value;
+        if (!worksetId) {
+            showAlert('warning', 'Please select a working set to test the query');
+            return;
+        }
+
+        // Fetch workset to get connection
+        try {
+            const response = await fetch(`${API_BASE}/admin/workset/${worksetId}`);
+            if (!response.ok) throw new Error('Failed to load workset');
+            const workset = await response.json();
+            connectionConfig = workset.source_connection;
+        } catch (error) {
+            showAlert('danger', `Error loading workset: ${error.message}`);
+            return;
+        }
+    } else {
+        // Manual connection
+        const portValue = document.getElementById('wizardTestPort').value.trim();
+        connectionConfig = {
+            name: 'wizard_test',
+            server: document.getElementById('wizardTestServer').value.trim(),
+            database: document.getElementById('wizardTestDatabase').value.trim(),
+            username: document.getElementById('wizardTestUsername').value.trim(),
+            password: document.getElementById('wizardTestPassword').value,
+            use_windows_auth: document.getElementById('wizardTestWindowsAuth').checked
+        };
+
+        // Only include port if specified
+        if (portValue) {
+            connectionConfig.port = parseInt(portValue);
+        }
+
+        if (!connectionConfig.server || !connectionConfig.database) {
+            showAlert('warning', 'Please provide connection details to test the query');
+            return;
+        }
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/admin/mapping/test-query`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                connection: connectionConfig,
+                query: query,
+                limit: 10
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showAlert('success', result.message || `Query executed successfully. Returned ${result.row_count} row(s).`);
+
+            // Optionally show sample data
+            if (result.sample_data && result.sample_data.length > 0) {
+                console.log('Sample data:', result.sample_data);
+                console.log('Columns:', result.columns);
+            }
+        } else {
+            showAlert('danger', `Query test failed: ${result.error}`);
+        }
+    } catch (error) {
+        showAlert('danger', `Error testing query: ${error.message}`);
     }
 }
 
 // Load worksets for assignment
 async function loadWorksetsForWizard() {
     const container = document.getElementById('wizardWorksets');
-    
+
     if (!container) return;
-    
-    // Show loading state
+
     container.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div> Loading worksets...';
-    
+
     try {
         const response = await fetch(`${API_BASE}/admin/workset/list`);
-        
+
         if (!response.ok) {
-            container.innerHTML = '<div class="alert alert-warning">Could not load worksets. You can still create the mapping and assign it to worksets later.</div>';
+            container.innerHTML = '<div class="alert alert-warning">Could not load worksets. You can assign this mapping to worksets later.</div>';
             return;
         }
-        
+
         const worksets = await response.json();
-        
+
         if (!worksets || worksets.length === 0) {
             container.innerHTML = `
                 <div class="alert alert-info">
                     <i class="bi bi-info-circle"></i> No working sets available yet.
-                    <br><small>You can create working sets in the "Working Sets" tab and assign this mapping later.</small>
+                    <br><small>Create working sets in the "Working Sets" tab and assign this mapping later.</small>
                 </div>
             `;
             return;
         }
-        
+
         container.innerHTML = '';
-        
+
         worksets.forEach(workset => {
             const isChecked = mappingData.assigned_worksets && mappingData.assigned_worksets.includes(workset.id);
             const div = document.createElement('div');
@@ -466,19 +872,18 @@ async function loadWorksetsForWizard() {
             `;
             container.appendChild(div);
         });
-        
-        // Add help text
+
         const helpText = document.createElement('div');
         helpText.className = 'mt-3 text-muted small';
         helpText.innerHTML = '<i class="bi bi-info-circle"></i> Select working sets to include this mapping in their synchronization runs.';
         container.appendChild(helpText);
-        
+
     } catch (error) {
         console.error('Error loading worksets:', error);
         container.innerHTML = `
             <div class="alert alert-warning">
                 <i class="bi bi-exclamation-triangle"></i> Could not load worksets: ${error.message}
-                <br><small>You can still create the mapping and assign it to worksets later.</small>
+                <br><small>You can assign this mapping to worksets later.</small>
             </div>
         `;
     }
@@ -486,23 +891,21 @@ async function loadWorksetsForWizard() {
 
 // Populate review content for step 5
 function populateReviewContent() {
-    // First, collect all data from previous steps
-    collectStepData();
-    
+    // Collect all data
+    for (let i = 1; i <= 4; i++) {
+        const savedStep = currentStep;
+        currentStep = i;
+        collectStepData();
+        currentStep = savedStep;
+    }
+
     const container = document.getElementById('wizardReviewContent');
     if (!container) return;
-    
-    // Collect selected worksets
-    const selectedWorksets = [];
-    document.querySelectorAll('.wizard-workset-checkbox:checked').forEach(cb => {
-        selectedWorksets.push(cb.value);
-    });
-    mappingData.assigned_worksets = selectedWorksets;
-    
-    const typeBadge = mappingData.mapping_type === 'table' 
-        ? '<span class="badge bg-primary">Table-based</span>' 
+
+    const typeBadge = mappingData.mapping_type === 'table'
+        ? '<span class="badge bg-primary">Table-based</span>'
         : '<span class="badge bg-info">SQL-based</span>';
-    
+
     let html = `
         <div class="card mb-3">
             <div class="card-header">
@@ -523,7 +926,7 @@ function populateReviewContent() {
             </div>
         </div>
     `;
-    
+
     // Type-specific details
     if (mappingData.mapping_type === 'table') {
         html += `
@@ -586,7 +989,7 @@ function populateReviewContent() {
             </div>
         `;
     }
-    
+
     // Sync options
     html += `
         <div class="card mb-3">
@@ -611,23 +1014,24 @@ function populateReviewContent() {
             </div>
         </div>
     `;
-    
+
     // Working sets
+    const selectedWorksets = mappingData.assigned_worksets || [];
     html += `
         <div class="card mb-3">
             <div class="card-header">
                 <h6 class="mb-0"><i class="bi bi-collection"></i> Working Sets</h6>
             </div>
             <div class="card-body">
-                ${selectedWorksets.length > 0 
+                ${selectedWorksets.length > 0
                     ? `<strong>Assigned to ${selectedWorksets.length} working set(s):</strong><br>${selectedWorksets.map(id => `<span class="badge bg-primary me-1">${id}</span>`).join('')}`
                     : '<span class="text-muted">Not assigned to any working sets</span>'
                 }
             </div>
         </div>
     `;
-    
-    // Warning for missing required fields
+
+    // Validation warnings
     let warnings = [];
     if (!mappingData.id) warnings.push('Mapping ID is required');
     if (!mappingData.name) warnings.push('Mapping Name is required');
@@ -637,7 +1041,7 @@ function populateReviewContent() {
     if (mappingData.mapping_type === 'sql' && !mappingData.source_query) {
         warnings.push('Source query is required for SQL-based mappings');
     }
-    
+
     if (warnings.length > 0) {
         html += `
             <div class="alert alert-warning">
@@ -654,14 +1058,14 @@ function populateReviewContent() {
             </div>
         `;
     }
-    
+
     container.innerHTML = html;
 }
 
-// Show cron helper
+// Helper: Show cron helper
 function showCronHelper() {
     alert(`Cron Expression Examples:
-    
+
 Every minute: * * * * *
 Every hour: 0 * * * *
 Every day at midnight: 0 0 * * *
@@ -672,57 +1076,16 @@ Every day at 2:30 PM: 30 14 * * *
 Format: minute hour day month weekday`);
 }
 
-// Test SQL query
-async function testSQLQuery() {
-    const query = document.getElementById('wizardSourceQuery').value;
-    if (!query) {
-        showAlert('warning', 'Please enter a SQL query first');
-        return;
-    }
-    
-    try {
-        // Create a temporary mapping to test
-        const testMapping = {
-            ...mappingData,
-            source_query: query,
-            id: 'test_' + Date.now(),
-            name: 'Test Query'
-        };
-        
-        const response = await fetch(`${API_BASE}/admin/mapping/test`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(testMapping)
-        });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            showAlert('success', `Query executed successfully. Returned ${result.row_count || 0} rows.`);
-        } else {
-            showAlert('danger', `Query failed: ${result.error || result.message}`);
-        }
-    } catch (error) {
-        showAlert('danger', `Error testing query: ${error.message}`);
-    }
-}
-
 // Helper function to show alerts
 function showAlert(type, message) {
-    // Use existing alert system or create a simple one
     const alertDiv = document.createElement('div');
-    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-3`;
+    alertDiv.style.zIndex = '9999';
     alertDiv.innerHTML = `
         ${message}
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
     `;
-    
-    const container = document.querySelector('.container-fluid');
-    if (container) {
-        container.insertBefore(alertDiv, container.firstChild);
-        setTimeout(() => alertDiv.remove(), 5000);
-    }
+
+    document.body.appendChild(alertDiv);
+    setTimeout(() => alertDiv.remove(), 5000);
 }
-
-
-

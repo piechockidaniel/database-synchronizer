@@ -1392,8 +1392,6 @@ const WorkflowDesigner = (function() {
             infoDiv.style.display = 'block';
         }
     }
-    
-    return WorkflowDesigner;
 })();
 
 // Initialize when designer tab is shown

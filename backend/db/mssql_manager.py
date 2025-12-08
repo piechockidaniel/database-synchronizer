@@ -28,11 +28,16 @@ class MSSQLConnection:
             Connection string
         """
         parts = [
-            f"DRIVER={{{self.config.driver}}}",
-            f"SERVER={self.config.server},{self.config.port}",
-            f"DATABASE={self.config.database}",
-            f"Encrypt=optional"
+            f"DRIVER={{{self.config.driver}}}"
         ]
+
+        if self.config.port:
+            parts.append(f"SERVER={self.config.server},{self.config.port}")
+        else:
+            parts.append(f"SERVER={self.config.server}")
+
+        parts.append(f"DATABASE={self.config.database}")
+        parts.append(f"Encrypt=Optional")
         
         if self.config.use_windows_auth:
             parts.append("Trusted_Connection=yes")
@@ -44,8 +49,8 @@ class MSSQLConnection:
         
         # Additional settings for better compatibility
         parts.extend([
-            "TrustServerCertificate=true",
-            "Connection Timeout=360",
+            "TrustServerCertificate=Yes",
+            "Connection Timeout=0",
         ])
         result = ";".join(parts)
         print(result)

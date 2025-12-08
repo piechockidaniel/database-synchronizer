@@ -451,6 +451,70 @@ async def test_mapping(mapping_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class QueryTestRequest(BaseModel):
+    """Request model for testing a query with connection details."""
+    connection: ConnectionConfig
+    query: str
+    limit: int = 10
+
+
+@router.post("/mapping/test-query")
+async def test_query_with_connection(request: QueryTestRequest):
+    """Test a SQL query with provided connection details.
+
+    Used by the mapping wizard to test queries before creating the mapping.
+
+    Args:
+        request: Query test request with connection and query
+
+    Returns:
+        Test results with sample data
+    """
+    try:
+        # Create temporary connection
+        temp_conn = MSSQLConnection(request.connection)
+
+        # Test connection first
+        success, message = temp_conn.test_connection()
+        if not success:
+            return {
+                "success": False,
+                "error": f"Connection failed: {message}"
+            }
+
+        # Connect and execute query
+        if not temp_conn.is_connected():
+            temp_conn.connect()
+
+        # Wrap query in SELECT TOP to limit results
+        test_query = f"SELECT TOP {request.limit} * FROM ({request.query}) AS test_subquery"
+
+        try:
+            results = temp_conn.execute_query(test_query)
+            return {
+                "success": True,
+                "row_count": len(results),
+                "sample_data": results[:5] if results else [],
+                "columns": list(results[0].keys()) if results and len(results) > 0 else [],
+                "message": f"Query executed successfully. Returned {len(results)} row(s)."
+            }
+        except Exception as query_error:
+            return {
+                "success": False,
+                "error": f"Query execution failed: {str(query_error)}"
+            }
+        finally:
+            # Clean up connection
+            temp_conn.disconnect()
+
+    except Exception as e:
+        logger.error(f"Error testing query: {e}")
+        return {
+            "success": False,
+            "error": f"Test failed: {str(e)}"
+        }
+
+
 # Working Set Management
 
 @router.post("/workset/create")

@@ -1,6 +1,5 @@
 // Operations page JavaScript
 
-const API_BASE = '/api';
 let statusInterval = null;
 
 // Initialize page

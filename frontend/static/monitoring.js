@@ -1,6 +1,5 @@
 // Monitoring page JavaScript
 
-const API_BASE = '/api';
 let ws = null;
 let reconnectInterval = null;
 

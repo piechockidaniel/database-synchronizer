@@ -2,7 +2,7 @@
 from fastapi import APIRouter, HTTPException
 from typing import List, Optional
 import logging
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from backend.models.schemas import (
     ConnectionConfig, ConnectionTestResponse, DatabaseInfo,
     TableInfo, ColumnInfo, CDCEnableRequest, CDCStatusResponse,
@@ -277,6 +277,140 @@ async def get_cdc_status(connection_type: ConnectionType) -> CDCStatusResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# CDC Operations with Connection Config (for connection library)
+
+class CDCConnectionRequest(BaseModel):
+    """Request model for CDC operations with connection details."""
+    connection: ConnectionConfig
+
+class CDCTableRequest(BaseModel):
+    """Request model for CDC table operations with connection details."""
+    connection: ConnectionConfig
+    schema_name: str
+    table_name: str
+    capture_instance: Optional[str] = None
+
+
+@router.post("/cdc/check-status")
+async def check_cdc_status_with_connection(request: CDCConnectionRequest):
+    """Check CDC status for a specific connection.
+
+    Args:
+        request: Request with connection details
+
+    Returns:
+        CDC status response
+    """
+    temp_conn = None
+    try:
+        temp_conn = MSSQLConnection(request.connection)
+        success, message = temp_conn.test_connection()
+        if not success:
+            raise HTTPException(status_code=400, detail=f"Connection failed: {message}")
+
+        if not temp_conn.is_connected():
+            temp_conn.connect()
+
+        cdc_ops = CDCOperations(temp_conn)
+        cdc_enabled = cdc_ops.is_cdc_enabled_on_database()
+        tables = cdc_ops.get_cdc_enabled_tables() if cdc_enabled else []
+
+        return {
+            "database": request.connection.database,
+            "cdc_enabled": cdc_enabled,
+            "tables": tables
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking CDC status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if temp_conn:
+            temp_conn.disconnect()
+
+
+@router.post("/cdc/enable-database")
+async def enable_cdc_on_database_with_connection(request: CDCConnectionRequest):
+    """Enable CDC on database using provided connection.
+
+    Args:
+        request: Request with connection details
+
+    Returns:
+        Success response
+    """
+    temp_conn = None
+    try:
+        temp_conn = MSSQLConnection(request.connection)
+        success, message = temp_conn.test_connection()
+        if not success:
+            raise HTTPException(status_code=400, detail=f"Connection failed: {message}")
+
+        if not temp_conn.is_connected():
+            temp_conn.connect()
+
+        cdc_ops = CDCOperations(temp_conn)
+        success, message = cdc_ops.enable_cdc_on_database()
+
+        if not success:
+            raise HTTPException(status_code=500, detail=message)
+
+        return {"success": True, "message": message}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error enabling CDC on database: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if temp_conn:
+            temp_conn.disconnect()
+
+
+@router.post("/cdc/enable-table-with-connection")
+async def enable_cdc_on_table_with_connection(request: CDCTableRequest):
+    """Enable CDC on table using provided connection.
+
+    Args:
+        request: Request with connection and table details
+
+    Returns:
+        Success response
+    """
+    temp_conn = None
+    try:
+        if not request.schema_name or not request.table_name:
+            raise HTTPException(status_code=400, detail="schema_name and table_name are required")
+
+        temp_conn = MSSQLConnection(request.connection)
+        success, message = temp_conn.test_connection()
+        if not success:
+            raise HTTPException(status_code=400, detail=f"Connection failed: {message}")
+
+        if not temp_conn.is_connected():
+            temp_conn.connect()
+
+        cdc_ops = CDCOperations(temp_conn)
+        success, message = cdc_ops.enable_cdc_on_table(
+            request.schema_name,
+            request.table_name,
+            request.capture_instance
+        )
+
+        if not success:
+            raise HTTPException(status_code=500, detail=message)
+
+        return {"success": True, "message": message}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error enabling CDC on table: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if temp_conn:
+            temp_conn.disconnect()
+
+
 # Unified Mapping Management
 
 @router.post("/mapping/create")
@@ -512,6 +646,119 @@ async def test_query_with_connection(request: QueryTestRequest):
         return {
             "success": False,
             "error": f"Test failed: {str(e)}"
+        }
+
+
+# Multi-Source Mapping Support
+
+class MergePreviewRequest(BaseModel):
+    """Request model for previewing a multi-source merge."""
+    mapping: Mapping
+    connection_id: Optional[str] = Field(None, description="Connection ID to use for preview (will use first source connection if not provided)")
+    limit: int = Field(default=10, description="Number of preview rows to return")
+
+
+@router.post("/mapping/preview-merge")
+async def preview_multi_source_merge(request: MergePreviewRequest):
+    """Preview the results of a multi-source merge pattern.
+
+    Args:
+        request: Merge preview request
+
+    Returns:
+        Preview results with sample data
+    """
+    try:
+        from backend.core.multi_source_executor import MergePatternExecutor
+
+        # Validate it's a multi-source mapping
+        if not request.mapping.is_multi_source:
+            return {
+                "success": False,
+                "error": "Mapping is not multi-source"
+            }
+
+        # Get connection to use (first source if not specified)
+        connection_id = request.connection_id
+        if not connection_id and request.mapping.sources:
+            connection_id = request.mapping.sources[0].connection_id
+
+        if not connection_id:
+            return {
+                "success": False,
+                "error": "No connection specified and no sources configured"
+            }
+
+        # Load connection
+        conn_data = config_manager.get_connection(connection_id)
+        if not conn_data:
+            return {
+                "success": False,
+                "error": f"Connection '{connection_id}' not found"
+            }
+
+        # Create connection config
+        conn_config = ConnectionConfig(**conn_data)
+        temp_conn = MSSQLConnection(conn_config)
+
+        try:
+            # Test connection
+            success, message = temp_conn.test_connection()
+            if not success:
+                return {
+                    "success": False,
+                    "error": f"Connection failed: {message}"
+                }
+
+            # Execute merge preview
+            executor = MergePatternExecutor({})
+            result = executor.execute_merge_preview(
+                request.mapping,
+                temp_conn,
+                limit=request.limit
+            )
+
+            return result
+
+        finally:
+            temp_conn.disconnect()
+
+    except Exception as e:
+        logger.error(f"Error previewing multi-source merge: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+@router.post("/mapping/validate-merge")
+async def validate_merge_pattern(mapping: Mapping):
+    """Validate a multi-source merge pattern.
+
+    Args:
+        mapping: Mapping to validate
+
+    Returns:
+        Validation result
+    """
+    try:
+        from backend.core.multi_source_executor import MergePatternExecutor
+
+        executor = MergePatternExecutor({})
+        is_valid, message = executor.validate_merge_pattern(mapping)
+
+        return {
+            "success": is_valid,
+            "message": message,
+            "is_valid": is_valid
+        }
+
+    except Exception as e:
+        logger.error(f"Error validating merge pattern: {e}")
+        return {
+            "success": False,
+            "is_valid": False,
+            "message": str(e)
         }
 
 

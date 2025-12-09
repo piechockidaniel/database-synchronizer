@@ -74,6 +74,22 @@ class MappingType(str, Enum):
     SQL = "sql"  # SQL query-based mapping
 
 
+class MergeOperationType(str, Enum):
+    """Types of merge operations for multi-source mappings."""
+    JOIN = "join"           # SQL JOIN (INNER, LEFT, RIGHT, FULL)
+    UNION = "union"         # Vertical stacking (UNION or UNION ALL)
+    INTERSECT = "intersect" # Common rows only
+    EXCEPT = "except"       # Rows in first but not second
+    CUSTOM = "custom"       # Custom SQL expression
+
+
+class ConflictResolutionStrategy(str, Enum):
+    """Strategy for resolving conflicts in multi-source merges."""
+    LATEST_WINS = "latest_wins"           # Most recent update wins
+    SOURCE_PRIORITY = "source_priority"   # Prioritize specific source
+    CUSTOM_RULE = "custom_rule"           # User-defined resolution
+
+
 class ColumnMapping(BaseModel):
     """Column-to-column mapping.
     
@@ -97,6 +113,55 @@ class ColumnMapping(BaseModel):
     default_value: Optional[str] = None  # Default value if source is NULL or missing (can be SQL expression)
 
 
+# Multi-Source Mapping Models
+
+class SourceConfig(BaseModel):
+    """Configuration for a single source in multi-source mapping."""
+    id: str = Field(..., description="Unique source identifier within mapping")
+    connection_id: str = Field(..., description="Reference to saved connection ID")
+    alias: str = Field(..., description="Alias used in merge operations (e.g., 'crm', 'erp')")
+    schema: str = Field(..., description="Schema name")
+    table: str = Field(..., description="Table name")
+
+    # CDC tracking (per source)
+    enable_cdc: bool = True
+    cdc_capture_instance: Optional[str] = None
+
+    # Filtering
+    where_clause: Optional[str] = Field(None, description="Optional WHERE condition for this source")
+
+
+class OutputColumnMapping(BaseModel):
+    """Maps source columns to destination columns in merge result."""
+    source_alias: str = Field(..., description="Source alias (e.g., 'crm', 'erp', or 'merged')")
+    source_column: str = Field(..., description="Column name in the source")
+    destination_column: str = Field(..., description="Column name in destination table")
+    transformation: Optional[str] = Field(None, description="Optional SQL transformation expression")
+
+
+class MergeOperation(BaseModel):
+    """Single merge operation in a pipeline."""
+    type: MergeOperationType
+    left_source: str = Field(..., description="Left source alias or 'previous_result'")
+    right_source: str = Field(..., description="Right source alias")
+
+    # For JOIN operations
+    join_type: Optional[str] = Field(None, description="INNER, LEFT, RIGHT, FULL")
+    on_condition: Optional[str] = Field(None, description="JOIN condition (e.g., 'left.id = right.customer_id')")
+
+    # For UNION operations
+    union_all: bool = True  # True = UNION ALL, False = UNION (distinct)
+
+    # Custom SQL
+    custom_expression: Optional[str] = None
+
+
+class MergePattern(BaseModel):
+    """Defines how multiple sources are merged."""
+    operations: List[MergeOperation] = Field(..., description="Ordered list of merge operations")
+    output_columns: List[OutputColumnMapping] = Field(..., description="Final column selection and mapping")
+
+
 class Mapping(BaseModel):
     """Unified mapping configuration supporting both table-based and SQL-based mappings."""
     id: str = Field(..., description="Unique mapping ID")
@@ -115,9 +180,17 @@ class Mapping(BaseModel):
     batch_size: int = Field(default=1000, description="Batch size for processing records")
     timeout_seconds: int = Field(default=300, description="Query timeout in seconds")
     
-    # Table-specific fields (when mapping_type == TABLE)
-    source_schema: Optional[str] = Field(None, description="Source schema name (for TABLE type)")
-    source_table: Optional[str] = Field(None, description="Source table name (for TABLE type)")
+    # Multi-source support
+    is_multi_source: bool = False
+    sources: List[SourceConfig] = Field(default_factory=list, description="Multiple source configurations")
+    merge_pattern: Optional[MergePattern] = Field(None, description="Pattern for merging multiple sources")
+    conflict_resolution: ConflictResolutionStrategy = ConflictResolutionStrategy.LATEST_WINS
+    source_priority: List[str] = Field(default_factory=list, description="Ordered list of source IDs (highest priority first)")
+
+    # Table-specific fields (when mapping_type == TABLE and is_multi_source == False)
+    # DEPRECATED when is_multi_source == True (use sources instead)
+    source_schema: Optional[str] = Field(None, description="Source schema name (for TABLE type, single source)")
+    source_table: Optional[str] = Field(None, description="Source table name (for TABLE type, single source)")
     column_mappings: List[ColumnMapping] = Field(default_factory=list, description="Column mappings (for TABLE type)")
     sync_deletes: bool = True  # For TABLE type
     sync_updates: bool = True  # For TABLE type

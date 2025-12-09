@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="MSSQL CDC Database Synchronizer",
     description="Real-time database synchronization using Change Data Capture",
-    version="1.0.0"
+    version="1.0.0",
+    favicon_url="https://localhost:8000/static/favicon.ico"
 )
 
 # Add CORS middleware

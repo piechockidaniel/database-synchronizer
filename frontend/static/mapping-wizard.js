@@ -351,24 +351,12 @@ function collectStepData() {
             const connType = document.getElementById('wizardConnectionType').value;
             mappingData._test_connection_type = connType;
 
-            if (connType === 'workset') {
+            if (connType === 'library') {
+                const connectionId = document.getElementById('wizardConnectionLibrary').value;
+                mappingData._test_connection = {type: 'library', connection_id: connectionId};
+            } else if (connType === 'workset') {
                 const worksetId = document.getElementById('wizardConnectionWorkset').value;
                 mappingData._test_connection = {type: 'workset', workset_id: worksetId};
-            } else {
-                // Collect manual connection details
-                const portValue = document.getElementById('wizardTestPort').value.trim();
-                mappingData._test_connection = {
-                    type: 'manual',
-                    server: document.getElementById('wizardTestServer').value.trim(),
-                    database: document.getElementById('wizardTestDatabase').value.trim(),
-                    username: document.getElementById('wizardTestUsername').value.trim(),
-                    password: document.getElementById('wizardTestPassword').value,
-                    use_windows_auth: document.getElementById('wizardTestWindowsAuth').checked
-                };
-                // Only include port if specified
-                if (portValue) {
-                    mappingData._test_connection.port = parseInt(portValue);
-                }
             }
 
             if (mappingData.mapping_type === 'table') {
@@ -483,22 +471,45 @@ async function saveMappingFromWizard() {
 // Connection selector functions
 function onWizardConnectionTypeChange() {
     const connType = document.getElementById('wizardConnectionType').value;
+    const libraryDiv = document.getElementById('wizardConnectionLibraryDiv');
     const worksetDiv = document.getElementById('wizardConnectionWorksetDiv');
-    const manualDiv = document.getElementById('wizardConnectionManualDiv');
 
-    if (connType === 'workset') {
-        worksetDiv.style.display = 'block';
-        manualDiv.style.display = 'none';
-    } else {
+    if (connType === 'library') {
+        libraryDiv.style.display = 'block';
         worksetDiv.style.display = 'none';
-        manualDiv.style.display = 'block';
+        loadConnectionsForWizard();
+    } else if (connType === 'workset') {
+        libraryDiv.style.display = 'none';
+        worksetDiv.style.display = 'block';
+        loadWorksetsForConnectionSelector();
     }
 }
 
-function onWizardTestWindowsAuthChange() {
-    const useWinAuth = document.getElementById('wizardTestWindowsAuth').checked;
-    const credDiv = document.getElementById('wizardTestCredentialsDiv');
-    credDiv.style.display = useWinAuth ? 'none' : 'block';
+async function loadConnectionsForWizard() {
+    const select = document.getElementById('wizardConnectionLibrary');
+    if (!select) return;
+
+    try {
+        const response = await fetch(`${API_BASE}/admin/connection/list`);
+        if (!response.ok) {
+            console.error('Failed to load connections');
+            return;
+        }
+
+        const connections = await response.json();
+
+        select.innerHTML = '<option value="">-- Select Connection --</option>';
+        connections.forEach(conn => {
+            const option = document.createElement('option');
+            option.value = conn.id;
+            const authType = conn.use_windows_auth ? 'Windows Auth' : 'SQL Auth';
+            option.textContent = `${conn.name} (${conn.server}/${conn.database}) - ${authType}`;
+            select.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error loading connections:', error);
+        showAlert('danger', `Error loading connections: ${error.message}`);
+    }
 }
 
 async function loadWorksetsForConnectionSelector() {
@@ -529,7 +540,25 @@ async function wizardLoadColumns() {
     const connType = document.getElementById('wizardConnectionType').value;
     let connectionConfig;
 
-    if (connType === 'workset') {
+    if (connType === 'library') {
+        const connectionId = document.getElementById('wizardConnectionLibrary').value;
+        if (!connectionId) {
+            showAlert('warning', 'Please select a connection from the library first');
+            return;
+        }
+
+        // Fetch connection from library
+        showLoading('Loading connection from library...');
+        try {
+            const response = await fetch(`${API_BASE}/admin/connection/${connectionId}`);
+            if (!response.ok) throw new Error('Failed to load connection');
+            connectionConfig = await response.json();
+        } catch (error) {
+            hideLoading();
+            showAlert('danger', `Error loading connection: ${error.message}`);
+            return;
+        }
+    } else if (connType === 'workset') {
         const worksetId = document.getElementById('wizardConnectionWorkset').value;
         if (!worksetId) {
             showAlert('warning', 'Please select a working set first');
@@ -549,26 +578,9 @@ async function wizardLoadColumns() {
             return;
         }
     } else {
-        // Manual connection
-        const portValue = document.getElementById('wizardTestPort').value.trim();
-        connectionConfig = {
-            name: 'wizard_test',
-            server: document.getElementById('wizardTestServer').value.trim(),
-            database: document.getElementById('wizardTestDatabase').value.trim(),
-            username: document.getElementById('wizardTestUsername').value.trim(),
-            password: document.getElementById('wizardTestPassword').value,
-            use_windows_auth: document.getElementById('wizardTestWindowsAuth').checked
-        };
-
-        // Only include port if specified
-        if (portValue) {
-            connectionConfig.port = parseInt(portValue);
-        }
-
-        if (!connectionConfig.server || !connectionConfig.database) {
-            showAlert('warning', 'Please provide server and database details');
-            return;
-        }
+        hideLoading();
+        showAlert('danger', 'Invalid connection type selected');
+        return;
     }
 
     // Get schema and table names
@@ -775,7 +787,25 @@ async function testSQLQuery() {
     const connType = document.getElementById('wizardConnectionType').value;
     let connectionConfig;
 
-    if (connType === 'workset') {
+    if (connType === 'library') {
+        const connectionId = document.getElementById('wizardConnectionLibrary').value;
+        if (!connectionId) {
+            showAlert('warning', 'Please select a connection from the library to test the query');
+            return;
+        }
+
+        // Fetch connection from library
+        showLoading('Loading connection from library...');
+        try {
+            const response = await fetch(`${API_BASE}/admin/connection/${connectionId}`);
+            if (!response.ok) throw new Error('Failed to load connection');
+            connectionConfig = await response.json();
+        } catch (error) {
+            hideLoading();
+            showAlert('danger', `Error loading connection: ${error.message}`);
+            return;
+        }
+    } else if (connType === 'workset') {
         const worksetId = document.getElementById('wizardConnectionWorkset').value;
         if (!worksetId) {
             showAlert('warning', 'Please select a working set to test the query');
@@ -795,26 +825,9 @@ async function testSQLQuery() {
             return;
         }
     } else {
-        // Manual connection
-        const portValue = document.getElementById('wizardTestPort').value.trim();
-        connectionConfig = {
-            name: 'wizard_test',
-            server: document.getElementById('wizardTestServer').value.trim(),
-            database: document.getElementById('wizardTestDatabase').value.trim(),
-            username: document.getElementById('wizardTestUsername').value.trim(),
-            password: document.getElementById('wizardTestPassword').value,
-            use_windows_auth: document.getElementById('wizardTestWindowsAuth').checked
-        };
-
-        // Only include port if specified
-        if (portValue) {
-            connectionConfig.port = parseInt(portValue);
-        }
-
-        if (!connectionConfig.server || !connectionConfig.database) {
-            showAlert('warning', 'Please provide connection details to test the query');
-            return;
-        }
+        hideLoading();
+        showAlert('danger', 'Invalid connection type selected');
+        return;
     }
 
     showLoading('Testing query...');

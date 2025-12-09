@@ -1087,114 +1087,12 @@ function populateReviewContent() {
 function showCronHelper() {
     alert(`Cron Expression Examples:
 
-Every minute: * * * * *
-Every hour: 0 * * * *
-Every day at midnight: 0 0 * * *
-Every Monday at 9 AM: 0 9 * * 1
-Every 15 minutes: */15 * * * *
-Every day at 2:30 PM: 30 14 * * *
+    Every minute: * * * * *
+    Every hour: 0 * * * *
+    Every day at midnight: 0 0 * * *
+    Every Monday at 9 AM: 0 9 * * 1
+    Every 15 minutes: */15 * * * *
+    Every day at 2:30 PM: 30 14 * * *
 
-Format: minute hour day month weekday`);
-}
-
-// ============================================================================
-// LOADING INDICATOR SYSTEM
-// ============================================================================
-
-let loadingOverlay = null;
-
-function showLoading(message = 'Processing...') {
-    // Remove existing overlay if any
-    hideLoading();
-
-    // Create overlay
-    loadingOverlay = document.createElement('div');
-    loadingOverlay.className = 'wizard-loading-overlay';
-    loadingOverlay.innerHTML = `
-        <div class="wizard-loading-content">
-            <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            <div class="wizard-loading-message">${message}</div>
-        </div>
-    `;
-
-    document.body.appendChild(loadingOverlay);
-
-    // Trigger animation
-    setTimeout(() => {
-        loadingOverlay.classList.add('show');
-    }, 10);
-}
-
-function hideLoading() {
-    if (loadingOverlay) {
-        loadingOverlay.classList.remove('show');
-        setTimeout(() => {
-            if (loadingOverlay && loadingOverlay.parentNode) {
-                loadingOverlay.parentNode.removeChild(loadingOverlay);
-            }
-            loadingOverlay = null;
-        }, 300);
-    }
-}
-
-// ============================================================================
-// ALERT/NOTIFICATION SYSTEM
-// ============================================================================
-
-let alertContainer = null;
-
-function initAlertContainer() {
-    if (!alertContainer) {
-        alertContainer = document.createElement('div');
-        alertContainer.className = 'wizard-alert-container';
-        document.body.appendChild(alertContainer);
-    }
-}
-
-function showAlert(type, message, duration = 5000) {
-    initAlertContainer();
-
-    // Map types to Bootstrap colors and icons
-    const typeConfig = {
-        success: { icon: 'bi-check-circle-fill', color: 'success' },
-        danger: { icon: 'bi-exclamation-circle-fill', color: 'danger' },
-        warning: { icon: 'bi-exclamation-triangle-fill', color: 'warning' },
-        info: { icon: 'bi-info-circle-fill', color: 'info' }
-    };
-
-    const config = typeConfig[type] || typeConfig.info;
-
-    // Create alert element
-    const alertDiv = document.createElement('div');
-    alertDiv.className = `wizard-alert wizard-alert-${config.color}`;
-    alertDiv.innerHTML = `
-        <div class="wizard-alert-content">
-            <i class="bi ${config.icon} wizard-alert-icon"></i>
-            <div class="wizard-alert-message">${message}</div>
-            <button type="button" class="wizard-alert-close" onclick="this.parentElement.parentElement.remove()">
-                <i class="bi bi-x"></i>
-            </button>
-        </div>
-    `;
-
-    alertContainer.appendChild(alertDiv);
-
-    // Trigger animation
-    setTimeout(() => {
-        alertDiv.classList.add('show');
-    }, 10);
-
-    // Auto-remove after duration
-    if (duration > 0) {
-        setTimeout(() => {
-            alertDiv.classList.remove('show');
-            setTimeout(() => {
-                if (alertDiv.parentNode) {
-                    alertDiv.parentNode.removeChild(alertDiv);
-                }
-            }, 300);
-        }, duration);
-    }
+    Format: minute hour day month weekday`);
 }

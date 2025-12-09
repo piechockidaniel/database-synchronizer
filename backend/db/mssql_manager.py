@@ -18,7 +18,7 @@ class MSSQLConnection:
             config: Connection configuration
         """
         self.config = config
-        self._connection: Optional[pyodbc.Connection] = None
+        self.connection: Optional[pyodbc.Connection] = None
         self._connection_string = self._build_connection_string()
     
     def _build_connection_string(self) -> str:
@@ -74,7 +74,7 @@ class MSSQLConnection:
         """Close database connection."""
         if self._connection:
             try:
-                self._connection.close()
+                self.connection.close()
                 logger.info(f"Disconnected from {self.config.server}/{self.config.database}")
             except Exception as e:
                 logger.error(f"Error disconnecting: {e}")
@@ -90,7 +90,7 @@ class MSSQLConnection:
         if not self._connection:
             return False
         try:
-            cursor = self._connection.cursor()
+            cursor = self.connection.cursor()
             cursor.execute("SELECT 1")
             cursor.close()
             return True
@@ -109,12 +109,12 @@ class MSSQLConnection:
             if not self.connect():
                 raise Exception("Failed to establish database connection")
         
-        cursor = self._connection.cursor()
+        cursor = self.connection.cursor()
         try:
             yield cursor
-            self._connection.commit()
+            self.connection.commit()
         except Exception as e:
-            self._connection.rollback()
+            self.connection.rollback()
             logger.error(f"Query error: {e}")
             raise
         finally:

@@ -1,14 +1,29 @@
 // Admin page JavaScript
 
-const API_BASE = '/api';
+document.addEventListener('DOMContentLoaded', function() {
+    // Toggle credentials fields based on Windows Auth checkbox
+    document.getElementById('srcWindowsAuth').addEventListener('change', function() {
+        document.getElementById('srcCredentials').style.display = this.checked ? 'none' : 'block';
+    });
 
-// Toggle credentials fields based on Windows Auth checkbox
-document.getElementById('srcWindowsAuth').addEventListener('change', function() {
-    document.getElementById('srcCredentials').style.display = this.checked ? 'none' : 'block';
-});
+    document.getElementById('destWindowsAuth').addEventListener('change', function() {
+        document.getElementById('destCredentials').style.display = this.checked ? 'none' : 'block';
+    });
 
-document.getElementById('destWindowsAuth').addEventListener('change', function() {
-    document.getElementById('destCredentials').style.display = this.checked ? 'none' : 'block';
+    // Save connection
+    document.getElementById('sourceConnectionForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        await saveConnection('source');
+    });
+
+    document.getElementById('destConnectionForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        await saveConnection('destination');
+    });
+
+    // Load initial data when tabs are clicked
+    document.getElementById('mappings-tab').addEventListener('click', loadMappings);
+    document.getElementById('worksets-tab').addEventListener('click', loadWorksets);
 });
 
 // Test connection
@@ -47,16 +62,7 @@ async function testConnection(type) {
     }
 }
 
-// Save connection
-document.getElementById('sourceConnectionForm').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    await saveConnection('source');
-});
 
-document.getElementById('destConnectionForm').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    await saveConnection('destination');
-});
 
 async function saveConnection(type) {
     const prefix = type === 'source' ? 'src' : 'dest';
@@ -1675,9 +1681,7 @@ function showAlert(type, message) {
     }, 5000);
 }
 
-// Load initial data when tabs are clicked
-document.getElementById('mappings-tab').addEventListener('click', loadMappings);
-document.getElementById('worksets-tab').addEventListener('click', loadWorksets);
+
 
 // ==================== DUCKDB TRANSFORMATION FUNCTIONS ====================
 

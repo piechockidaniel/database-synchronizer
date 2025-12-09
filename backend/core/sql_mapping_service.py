@@ -1,7 +1,6 @@
 """SQL Mapping execution service."""
 import logging
-from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime
+from typing import List, Dict, Any, Tuple
 from backend.models.schemas import Mapping, MappingType
 from backend.db.mssql_manager import MSSQLConnection
 

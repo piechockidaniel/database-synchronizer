@@ -6,8 +6,8 @@ Converts visual workflows into Mapping configurations.
 
 import logging
 from typing import List, Dict, Tuple, Optional
-from backend.models.workflow_schemas import VisualWorkflow, WorkflowNode, WorkflowEdge
-from backend.models.schemas import Mapping, ColumnMapping
+from backend.models.workflow_schemas import VisualWorkflow, WorkflowNode
+from backend.models.schemas import ColumnMapping, MappingType, Mapping
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class WorkflowConverter:
         """Initialize converter."""
         pass
     
-    def compile_workflow(self, workflow: VisualWorkflow) -> Tuple[bool, Optional[Mapping], List[str]]:
+    def compile_workflow(self, workflow: VisualWorkflow, Mappping=None) -> Tuple[bool, Optional[Mapping], List[str]]:
         """Compile visual workflow into Mapping.
         
         Args:
@@ -53,7 +53,8 @@ class WorkflowConverter:
             # Create Mapping
             mapping_id = f"mapping_{workflow.id}"
             
-            table_mapping = Mapping(
+            table_mapping = Mappping(
+                mapping_type=MappingType.TABLE,
                 id=mapping_id,
                 source_schema=source_info.get('schema', 'dbo'),
                 source_table=source_info.get('table', ''),
@@ -63,7 +64,8 @@ class WorkflowConverter:
                 enabled=True,
                 sync_inserts=True,
                 sync_updates=True,
-                sync_deletes=True
+                sync_deletes=True,
+                name=workflow.name
             )
             
             # Check for DuckDB transformations

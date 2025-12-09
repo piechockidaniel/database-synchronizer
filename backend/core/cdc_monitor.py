@@ -82,9 +82,9 @@ class CDCMonitor:
                     logger.info(f"Loaded LSN state for {table_key}: {last_lsn_hex}")
                 except Exception as e:
                     logger.error(f"Error loading LSN state for {table_key}: {e}")
-                    self.lsn_state[table_key] = None
+                    self.lsn_state[table_key] = bytes
             else:
-                self.lsn_state[table_key] = None
+                self.lsn_state[table_key] = bytes
     
     def _save_lsn_state(self, table_key: str, lsn: bytes):
         """Save last processed LSN for a table.

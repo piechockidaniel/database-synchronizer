@@ -100,6 +100,7 @@ function showMappingWizardForEdit(mappingId) {
 
 // Load mapping for editing
 async function loadMappingForEdit(mappingId) {
+    showLoading('Loading mapping...');
     try {
         const response = await fetch(`${API_BASE}/admin/mapping/${mappingId}`);
         if (!response.ok) throw new Error('Failed to load mapping');
@@ -116,7 +117,10 @@ async function loadMappingForEdit(mappingId) {
         currentStep = 2; // Start at configuration step for editing
         updateWizardUI();
         populateWizardForm();
+        hideLoading();
+        showAlert('success', 'Mapping loaded successfully');
     } catch (error) {
+        hideLoading();
         showAlert('danger', `Error loading mapping: ${error.message}`);
     }
 }
@@ -441,6 +445,7 @@ async function saveMappingFromWizard() {
     delete dataToSave._test_connection;
     delete dataToSave._test_connection_type;
 
+    showLoading('Saving mapping...');
     try {
         const url = `${API_BASE}/admin/mapping/create`;
         const method = 'POST';
@@ -453,9 +458,14 @@ async function saveMappingFromWizard() {
 
         const result = await response.json();
 
+        hideLoading();
         if (result.success || response.ok) {
             showAlert('success', result.message || 'Mapping saved successfully');
-            bootstrap.Modal.getInstance(document.getElementById('mappingWizardModal')).hide();
+
+            // Close modal after a short delay to allow user to see success message
+            setTimeout(() => {
+                bootstrap.Modal.getInstance(document.getElementById('mappingWizardModal')).hide();
+            }, 1000);
 
             // Refresh mappings list
             if (typeof loadMappings === 'function') {
@@ -465,6 +475,7 @@ async function saveMappingFromWizard() {
             showAlert('danger', result.message || 'Failed to save mapping');
         }
     } catch (error) {
+        hideLoading();
         showAlert('danger', `Error saving mapping: ${error.message}`);
     }
 }
@@ -526,12 +537,14 @@ async function wizardLoadColumns() {
         }
 
         // Fetch workset to get connection
+        showLoading('Loading workset connection...');
         try {
             const response = await fetch(`${API_BASE}/admin/workset/${worksetId}`);
             if (!response.ok) throw new Error('Failed to load workset');
             const workset = await response.json();
             connectionConfig = workset.source_connection;
         } catch (error) {
+            hideLoading();
             showAlert('danger', `Error loading workset: ${error.message}`);
             return;
         }
@@ -569,6 +582,7 @@ async function wizardLoadColumns() {
         return;
     }
 
+    showLoading('Loading table columns...');
     try {
         // Load source columns
         const srcResponse = await fetch(`${API_BASE}/admin/scan/columns?connection_type=source&schema=${srcSchema}&table=${srcTable}`, {
@@ -591,12 +605,14 @@ async function wizardLoadColumns() {
         wizardSourceColumns = await srcResponse.json();
         wizardDestColumns = await destResponse.json();
 
+        hideLoading();
         showAlert('success', `Loaded ${wizardSourceColumns.length} source columns and ${wizardDestColumns.length} destination columns`);
 
         // Clear existing mappings
         wizardClearColumnMappings();
 
     } catch (error) {
+        hideLoading();
         showAlert('danger', `Error loading columns: ${error.message}`);
     }
 }
@@ -767,12 +783,14 @@ async function testSQLQuery() {
         }
 
         // Fetch workset to get connection
+        showLoading('Loading workset connection...');
         try {
             const response = await fetch(`${API_BASE}/admin/workset/${worksetId}`);
             if (!response.ok) throw new Error('Failed to load workset');
             const workset = await response.json();
             connectionConfig = workset.source_connection;
         } catch (error) {
+            hideLoading();
             showAlert('danger', `Error loading workset: ${error.message}`);
             return;
         }
@@ -799,6 +817,7 @@ async function testSQLQuery() {
         }
     }
 
+    showLoading('Testing query...');
     try {
         const response = await fetch(`${API_BASE}/admin/mapping/test-query`, {
             method: 'POST',
@@ -812,6 +831,7 @@ async function testSQLQuery() {
 
         const result = await response.json();
 
+        hideLoading();
         if (result.success) {
             showAlert('success', result.message || `Query executed successfully. Returned ${result.row_count} row(s).`);
 
@@ -824,6 +844,7 @@ async function testSQLQuery() {
             showAlert('danger', `Query test failed: ${result.error}`);
         }
     } catch (error) {
+        hideLoading();
         showAlert('danger', `Error testing query: ${error.message}`);
     }
 }
@@ -1076,16 +1097,104 @@ Every day at 2:30 PM: 30 14 * * *
 Format: minute hour day month weekday`);
 }
 
-// Helper function to show alerts
-function showAlert(type, message) {
-    const alertDiv = document.createElement('div');
-    alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-3`;
-    alertDiv.style.zIndex = '9999';
-    alertDiv.innerHTML = `
-        ${message}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+// ============================================================================
+// LOADING INDICATOR SYSTEM
+// ============================================================================
+
+let loadingOverlay = null;
+
+function showLoading(message = 'Processing...') {
+    // Remove existing overlay if any
+    hideLoading();
+
+    // Create overlay
+    loadingOverlay = document.createElement('div');
+    loadingOverlay.className = 'wizard-loading-overlay';
+    loadingOverlay.innerHTML = `
+        <div class="wizard-loading-content">
+            <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <div class="wizard-loading-message">${message}</div>
+        </div>
     `;
 
-    document.body.appendChild(alertDiv);
-    setTimeout(() => alertDiv.remove(), 5000);
+    document.body.appendChild(loadingOverlay);
+
+    // Trigger animation
+    setTimeout(() => {
+        loadingOverlay.classList.add('show');
+    }, 10);
+}
+
+function hideLoading() {
+    if (loadingOverlay) {
+        loadingOverlay.classList.remove('show');
+        setTimeout(() => {
+            if (loadingOverlay && loadingOverlay.parentNode) {
+                loadingOverlay.parentNode.removeChild(loadingOverlay);
+            }
+            loadingOverlay = null;
+        }, 300);
+    }
+}
+
+// ============================================================================
+// ALERT/NOTIFICATION SYSTEM
+// ============================================================================
+
+let alertContainer = null;
+
+function initAlertContainer() {
+    if (!alertContainer) {
+        alertContainer = document.createElement('div');
+        alertContainer.className = 'wizard-alert-container';
+        document.body.appendChild(alertContainer);
+    }
+}
+
+function showAlert(type, message, duration = 5000) {
+    initAlertContainer();
+
+    // Map types to Bootstrap colors and icons
+    const typeConfig = {
+        success: { icon: 'bi-check-circle-fill', color: 'success' },
+        danger: { icon: 'bi-exclamation-circle-fill', color: 'danger' },
+        warning: { icon: 'bi-exclamation-triangle-fill', color: 'warning' },
+        info: { icon: 'bi-info-circle-fill', color: 'info' }
+    };
+
+    const config = typeConfig[type] || typeConfig.info;
+
+    // Create alert element
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `wizard-alert wizard-alert-${config.color}`;
+    alertDiv.innerHTML = `
+        <div class="wizard-alert-content">
+            <i class="bi ${config.icon} wizard-alert-icon"></i>
+            <div class="wizard-alert-message">${message}</div>
+            <button type="button" class="wizard-alert-close" onclick="this.parentElement.parentElement.remove()">
+                <i class="bi bi-x"></i>
+            </button>
+        </div>
+    `;
+
+    alertContainer.appendChild(alertDiv);
+
+    // Trigger animation
+    setTimeout(() => {
+        alertDiv.classList.add('show');
+    }, 10);
+
+    // Auto-remove after duration
+    if (duration > 0) {
+        setTimeout(() => {
+            alertDiv.classList.remove('show');
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.parentNode.removeChild(alertDiv);
+                }
+            }, 300);
+        }, duration);
+    }
 }

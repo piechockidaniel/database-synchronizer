@@ -5,7 +5,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict
-from backend.models.schemas import WorkingSet, TableMapping, SQLMapping, Mapping, MappingType
+from backend.models.schemas import WorkingSet, Mapping, MappingType
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +14,7 @@ WORKSETS_FILE = CONFIG_DIR / "worksets.json"
 MAPPINGS_FILE = CONFIG_DIR / "mappings.json"
 SQL_MAPPINGS_FILE = CONFIG_DIR / "sql_mappings.json"  # Kept for migration detection
 LSN_STATE_FILE = CONFIG_DIR / "lsn_state.json"
+CONNECTIONS_FILE = CONFIG_DIR / "connections.json"
 
 
 class ConfigManager:
@@ -24,6 +25,7 @@ class ConfigManager:
         self._ensure_config_dir()
         self._worksets: Dict[str, WorkingSet] = {}
         self._mappings: Dict[str, Mapping] = {}  # Unified mappings storage
+        self._connections: Dict[str, dict] = {}  # Stored connections library
         self._lsn_state: Dict[str, str] = {}
         self._migration_performed = False
         self.load_all()
@@ -35,6 +37,7 @@ class ConfigManager:
     
     def load_all(self):
         """Load all configuration files."""
+        self.load_connections()
         self.load_worksets()
         # Check for legacy mapping files and migrate if needed
         if self._needs_migration():
@@ -231,13 +234,13 @@ class ConfigManager:
         return has_legacy_table or has_legacy_sql
     
     def _migrate_legacy_mappings(self):
-        """Migrate legacy TableMapping and SQLMapping to unified Mapping model."""
+        """Migrate legacy Mapping and SQLMapping to unified Mapping model."""
         logger.info("Starting migration of legacy mappings to unified Mapping model...")
         migrated_count = 0
         
         try:
             # Load legacy table mappings
-            legacy_table_mappings: Dict[str, TableMapping] = {}
+            legacy_table_mappings: Dict[str, Mapping] = {}
             if MAPPINGS_FILE.exists():
                 try:
                     with open(MAPPINGS_FILE, 'r') as f:
@@ -246,9 +249,9 @@ class ConfigManager:
                         if data and 'mapping_type' in list(data.values())[0]:
                             logger.info("Mappings file already contains unified mappings, skipping migration")
                             return
-                        # Load as TableMapping
+                        # Load as Mapping
                         legacy_table_mappings = {
-                            mapping_id: TableMapping(**mapping_data)
+                            mapping_id: Mapping(**mapping_data)
                             for mapping_id, mapping_data in data.items()
                         }
                         logger.info(f"Loaded {len(legacy_table_mappings)} legacy table mappings")
@@ -256,20 +259,20 @@ class ConfigManager:
                     logger.warning(f"Error loading legacy table mappings: {e}")
             
             # Load legacy SQL mappings
-            legacy_sql_mappings: Dict[str, SQLMapping] = {}
+            legacy_sql_mappings: Dict[str, Mapping] = {}
             if SQL_MAPPINGS_FILE.exists():
                 try:
                     with open(SQL_MAPPINGS_FILE, 'r') as f:
                         data = json.load(f)
                         legacy_sql_mappings = {
-                            mapping_id: SQLMapping(**mapping_data)
+                            mapping_id: Mapping(**mapping_data)
                             for mapping_id, mapping_data in data.items()
                         }
                         logger.info(f"Loaded {len(legacy_sql_mappings)} legacy SQL mappings")
                 except Exception as e:
                     logger.warning(f"Error loading legacy SQL mappings: {e}")
             
-            # Convert TableMapping to unified Mapping
+            # Convert Mapping to unified Mapping
             for mapping_id, table_mapping in legacy_table_mappings.items():
                 unified_mapping = Mapping(
                     id=table_mapping.id,
@@ -627,7 +630,7 @@ class ConfigManager:
                         for m_id, m_data in import_data['mappings'].items()
                     }
                 except:
-                    # Fallback to legacy TableMapping format
+                    # Fallback to legacy Mapping format
                     self._mappings = {
                         m_id: Mapping(
                             id=m_data.get('id', m_id),
@@ -656,7 +659,80 @@ class ConfigManager:
         except Exception as e:
             logger.error(f"Error importing configuration: {e}")
             return False
-    
+
+    # ========================================================================
+    # CONNECTION LIBRARY MANAGEMENT
+    # ========================================================================
+
+    def load_connections(self):
+        """Load saved connections from JSON file."""
+        if CONNECTIONS_FILE.exists():
+            try:
+                with open(CONNECTIONS_FILE, 'r') as f:
+                    content = f.read().strip()
+                    if content:
+                        self._connections = json.loads(content)
+                    else:
+                        self._connections = {}
+                logger.info(f"Loaded {len(self._connections)} saved connections")
+            except Exception as e:
+                logger.error(f"Error loading connections: {e}")
+                self._connections = {}
+        else:
+            self._connections = {}
+
+    def save_connections(self):
+        """Save connections to JSON file."""
+        try:
+            with open(CONNECTIONS_FILE, 'w') as f:
+                json.dump(self._connections, f, indent=2, default=str)
+            logger.info(f"Saved {len(self._connections)} connections")
+        except Exception as e:
+            logger.error(f"Error saving connections: {e}")
+
+    def get_all_connections(self) -> List[dict]:
+        """Get all saved connections."""
+        return list(self._connections.values())
+
+    def get_connection(self, connection_id: str) -> Optional[dict]:
+        """Get a connection by ID."""
+        return self._connections.get(connection_id)
+
+    def save_connection(self, connection_id: str, connection_data: dict) -> tuple[bool, str]:
+        """Save a connection to the library."""
+        try:
+            self._connections[connection_id] = connection_data
+            self.save_connections()
+            return True, f"Connection '{connection_id}' saved successfully"
+        except Exception as e:
+            logger.error(f"Error saving connection: {e}")
+            return False, str(e)
+
+    def delete_connection(self, connection_id: str) -> tuple[bool, str]:
+        """Delete a connection from the library."""
+        try:
+            if connection_id in self._connections:
+                del self._connections[connection_id]
+                self.save_connections()
+                return True, f"Connection '{connection_id}' deleted successfully"
+            else:
+                return False, f"Connection '{connection_id}' not found"
+        except Exception as e:
+            logger.error(f"Error deleting connection: {e}")
+            return False, str(e)
+
+    def update_connection(self, connection_id: str, connection_data: dict) -> tuple[bool, str]:
+        """Update an existing connection."""
+        try:
+            if connection_id in self._connections:
+                self._connections[connection_id] = connection_data
+                self.save_connections()
+                return True, f"Connection '{connection_id}' updated successfully"
+            else:
+                return False, f"Connection '{connection_id}' not found"
+        except Exception as e:
+            logger.error(f"Error updating connection: {e}")
+            return False, str(e)
 
 
 # Global configuration manager instance

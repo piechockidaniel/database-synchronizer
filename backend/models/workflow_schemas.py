@@ -36,7 +36,7 @@ class VisualWorkflow(BaseModel):
     nodes: List[WorkflowNode] = Field(default_factory=list, description="List of nodes in the workflow")
     edges: List[WorkflowEdge] = Field(default_factory=list, description="List of connections")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
-    compiled_mapping_id: Optional[str] = Field(None, description="ID of compiled TableMapping")
+    compiled_mapping_id: Optional[str] = Field(None, description="ID of compiled Mapping")
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 

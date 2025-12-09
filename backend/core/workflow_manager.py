@@ -6,7 +6,7 @@ Manages visual workflows - CRUD operations, persistence, and registry.
 
 import json
 import logging
-from typing import List, Dict, Optional, Tuple
+from typing import List, Optional, Tuple
 from pathlib import Path
 from datetime import datetime
 from backend.models.workflow_schemas import (

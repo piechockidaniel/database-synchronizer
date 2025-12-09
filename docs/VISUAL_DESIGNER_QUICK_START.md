@@ -59,7 +59,7 @@ Start → Source DB → Source Table → JSON → Dest DB → Dest Table
 1. Click **"Save"** button
 2. Enter name: `My First Workflow`
 3. Click **"Validate"** - Should show ✅
-4. Click **"Compile to Mapping"** - Generates TableMapping
+4. Click **"Compile to Mapping"** - Generates Mapping
 5. Done! Workflow is ready to use
 
 ---

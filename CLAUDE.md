@@ -100,7 +100,7 @@ Browser → FastAPI (Uvicorn) → API Router → Business Logic → Database Lay
 
 **WorkflowManager (`backend/core/workflow_manager.py`):**
 - Powers the visual workflow designer
-- Converts node-based workflows to TableMapping configurations
+- Converts node-based workflows to Mapping configurations
 - Validates workflow structure and dependencies
 
 ### Data Models (schemas.py)
@@ -114,7 +114,7 @@ Browser → FastAPI (Uvicorn) → API Router → Business Logic → Database Lay
 **Core Models:**
 - `ConnectionConfig`: Database connection details
 - `ColumnMapping`: Column-to-column mapping with transformations
-- `TableMapping`: Complete table synchronization configuration
+- `Mapping`: Complete table synchronization configuration
 - `WorkingSet`: Groups connections and mappings into deployable units
 - `CDCEvent`: Represents a change event from CDC tables
 
@@ -200,7 +200,7 @@ Working sets are the deployment unit for synchronization:
 
 The visual designer is a low-code/no-code interface:
 - Node-based workflow builder (drag and drop)
-- Compiles to `TableMapping` configurations
+- Compiles to `Mapping` configurations
 - Located at `/admin` → Visual Designer tab
 - JavaScript: `frontend/static/workflow-designer.js`
 - CSS: `frontend/static/workflow-designer.css`
@@ -416,7 +416,7 @@ Key dependencies and their purposes:
 
 ### Visual Workflow Designer
 - Node-based low-code workflow builder
-- Compiles to standard TableMapping configurations
+- Compiles to standard Mapping configurations
 - Supports complex transformation pipelines
 
 ### Working Sets GUI

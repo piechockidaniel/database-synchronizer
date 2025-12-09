@@ -44,7 +44,7 @@ The Visual Workflow Designer provides a low-code/no-code interface for building 
 **Step 5: Save and Compile**
 - Click "Save" button
 - Enter a workflow name
-- Click "Compile to Mapping" to generate TableMapping
+- Click "Compile to Mapping" to generate Mapping
 - Your workflow is now ready to use!
 
 ---
@@ -300,7 +300,7 @@ The Visual Workflow Designer provides a low-code/no-code interface for building 
 
 **Workflow Actions:**
 - **Validate** - Check workflow for errors
-- **Compile to Mapping** - Generate TableMapping configuration
+- **Compile to Mapping** - Generate Mapping configuration
 
 **View Controls:**
 - **Zoom In** - Increase canvas zoom
@@ -414,12 +414,12 @@ Start → Source DB → Source Table → Condition
 1. **Validation:** System checks workflow structure
 2. **Traversal:** Follows connections from Start to End
 3. **Extraction:** Gathers source, destination, transformations
-4. **Conversion:** Builds TableMapping object
+4. **Conversion:** Builds Mapping object
 5. **Saving:** Creates mapping in the system
 
 ### Compiled Mapping
 
-The visual workflow generates a standard `TableMapping`:
+The visual workflow generates a standard `Mapping`:
 - Source schema/table from Source nodes
 - Destination schema/table from Destination nodes
 - Column mappings from Transformation nodes
@@ -694,7 +694,7 @@ Nodes are color-coded by category:
 
 ### Compiled Mapping Performance
 
-Visual workflows compile to the same TableMapping format as form-based UI:
+Visual workflows compile to the same Mapping format as form-based UI:
 - Same performance characteristics
 - No overhead from visual metadata
 - Optimized for CDC synchronization
@@ -731,7 +731,7 @@ The Visual Workflow Designer provides:
 ✅ **All Features** - Complete access to all transformation capabilities  
 ✅ **Visual Documentation** - Self-documenting workflows  
 ✅ **No Code Required** - Build complex pipelines without writing SQL  
-✅ **Standard Output** - Compiles to TableMapping format  
+✅ **Standard Output** - Compiles to Mapping format  
 ✅ **Validation** - Built-in checks prevent errors  
 ✅ **Operators** - Logger, Notifier, Conditions for advanced logic  
 ✅ **Events** - Error handling and success hooks  

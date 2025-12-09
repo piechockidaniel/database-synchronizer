@@ -4,7 +4,7 @@ from typing import List, Dict, Any
 
 import duckdb
 
-from backend.models.schemas import TableMapping
+from backend.models.schemas import Mapping
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,7 @@ class DuckDBProcessor:
     def transform_data(
         self, 
         source_table: str,
-        mapping: TableMapping
+        mapping: Mapping
     ) -> List[Dict[str, Any]]:
         """Transform data according to column mappings.
         

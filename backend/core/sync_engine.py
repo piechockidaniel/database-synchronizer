@@ -51,6 +51,7 @@ class SyncEngine:
         
         Args:
             listener: Callable that accepts (event, status, error) parameters
+            :type listener: callable
         """
         self.event_listeners.append(listener)
     

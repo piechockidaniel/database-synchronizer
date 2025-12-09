@@ -113,7 +113,7 @@ Successfully implemented a **node-based visual workflow designer** for building 
 - ✅ Save workflow to disk
 - ✅ Load existing workflows
 - ✅ Validate workflow structure
-- ✅ Compile to TableMapping
+- ✅ Compile to Mapping
 - ✅ Clear canvas
 - ✅ Delete workflows
 
@@ -140,7 +140,7 @@ Successfully implemented a **node-based visual workflow designer** for building 
   - Workflow registry
 
 - `backend/core/workflow_converter.py` (200 lines)
-  - Visual workflow → TableMapping conversion
+  - Visual workflow → Mapping conversion
   - Graph traversal and analysis
   - Column mapping generation
   - DuckDB script handling
@@ -197,7 +197,7 @@ Successfully implemented a **node-based visual workflow designer** for building 
 ```
 workflows/
 ├── visual/           # Visual workflow definitions (JSON)
-└── compiled/         # Compiled TableMapping configs
+└── compiled/         # Compiled Mapping configs
 ```
 
 ---
@@ -237,7 +237,7 @@ workflows/
 ✅ **DAG Validation** - Prevents circular dependencies  
 ✅ **Type Safety** - Pydantic schemas  
 ✅ **Persistence** - JSON file storage  
-✅ **Compilation** - Generates standard TableMapping  
+✅ **Compilation** - Generates standard Mapping  
 ✅ **API Complete** - Full REST API support  
 
 ---
@@ -255,7 +255,7 @@ Validation & Persistence (workflow_manager)
          ↓
 Compilation (workflow_converter)
          ↓
-TableMapping Configuration
+Mapping Configuration
          ↓
 Existing Sync Engine
 ```
@@ -276,7 +276,7 @@ workflows/visual/workflow_customer_sync.json
 
 **Compiled Mapping:**
 ```
-Standard TableMapping format
+Standard Mapping format
 (stored via mapping_manager)
 ```
 
@@ -367,7 +367,7 @@ Standard TableMapping format
 3. Extract destination information
 4. Collect transformation nodes
 5. Generate ColumnMapping objects
-6. Build TableMapping
+6. Build Mapping
 7. Save compiled mapping
 
 **Handles:**
@@ -413,7 +413,7 @@ Standard TableMapping format
 
 The visual designer integrates seamlessly:
 
-✅ **Uses existing** TableMapping schema  
+✅ **Uses existing** Mapping schema  
 ✅ **Works with** existing sync engine  
 ✅ **Compatible with** Working Sets  
 ✅ **Supports** all transformation features  
@@ -678,7 +678,7 @@ All workflow operations available via REST API:
 ✅ **24 Node Types** - All categories implemented  
 ✅ **Full CRUD** - Create, read, update, delete workflows  
 ✅ **Validation Engine** - Comprehensive error checking  
-✅ **Compilation Engine** - Convert to TableMapping  
+✅ **Compilation Engine** - Convert to Mapping  
 ✅ **7 API Endpoints** - Complete REST API  
 ✅ **Documentation** - Comprehensive guides & examples  
 ✅ **No Dependencies** - Uses existing libraries  

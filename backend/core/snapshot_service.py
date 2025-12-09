@@ -136,7 +136,7 @@ class SnapshotService:
             logger.error(error_msg)
             return False, error_msg, 0
     
-    def _get_source_columns(self, mapping: TableMapping) -> List[str]:
+    def _get_source_columns(self, mapping: Mapping) -> List[str]:
         """Extract source column names from mapping.
         
         Args:
@@ -208,7 +208,7 @@ class SnapshotService:
     def _transform_batch(
         self,
         batch_data: List[Dict[str, Any]],
-        mapping: TableMapping,
+        mapping: Mapping,
         duckdb: DuckDBProcessor,
         timestamp_column: Optional[str] = None
     ) -> List[Dict[str, Any]]:

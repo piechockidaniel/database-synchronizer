@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 from backend.core.duckdb_processor import DuckDBProcessor
 from backend.db.mssql_manager import MSSQLConnection
-from backend.models.schemas import VerificationResult, TableMapping
+from backend.models.schemas import VerificationResult, Mapping
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ class DataQualityVerificator:
     
     def verify_mapping(
         self,
-        mapping: TableMapping,
+        mapping: Mapping,
         sample_size: int = 100,
         check_row_counts: bool = True,
         check_reverse_mapping: bool = True
@@ -212,7 +212,7 @@ class DataQualityVerificator:
     @staticmethod
     def _transform_sample(
             sample: Dict[str, Any],
-        mapping: TableMapping
+        mapping: Mapping
     ) -> Dict[str, Any]:
         """Transform a sample record according to mapping.
         
@@ -238,7 +238,7 @@ class DataQualityVerificator:
     
     def _find_destination_record(
         self,
-        mapping: TableMapping,
+        mapping: Mapping,
         transformed_data: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
         """Find corresponding record in destination table.
@@ -322,7 +322,7 @@ class DataQualityVerificator:
     
     def _verify_reverse_mapping(
         self,
-        mapping: TableMapping,
+        mapping: Mapping,
         sample_size: int
     ) -> float:
         """Verify reverse mapping capability.

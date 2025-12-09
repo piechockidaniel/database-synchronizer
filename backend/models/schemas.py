@@ -19,7 +19,7 @@ class ConnectionConfig(BaseModel):
     username: Optional[str] = Field(None, description="Username for authentication")
     password: Optional[str] = Field(None, description="Password for authentication")
     use_windows_auth: bool = Field(default=True, description="Use Windows authentication")
-    port: Optional[int] = Field(default=1433, description="Server port")
+    port: Optional[int] = Field(None, description="Server port")
     driver: str = Field(default="ODBC Driver 18 for SQL Server", description="ODBC driver name")
 
 
@@ -146,66 +146,6 @@ class Mapping(BaseModel):
     last_run_status: Optional[str] = None  # success, failed, running
     last_run_error: Optional[str] = None
 
-
-class TableMapping(BaseModel):
-    """Table mapping configuration (DEPRECATED - use Mapping with mapping_type=TABLE instead)."""
-    id: str = Field(..., description="Unique mapping ID")
-    source_schema: str
-    source_table: str
-    destination_schema: str
-    destination_table: str
-    column_mappings: List[ColumnMapping]
-    enabled: bool = True
-    sync_deletes: bool = True
-    sync_updates: bool = True
-    sync_inserts: bool = True
-    
-    # DuckDB transformation options
-    use_duckdb_transformation: bool = False  # Enable DuckDB in-memory staging/transformation
-    duckdb_script_name: Optional[str] = None  # Name of DuckDB script file to use
-    duckdb_script_content: Optional[str] = None  # Inline DuckDB SQL script (alternative to file)
-    
-    # Initial snapshot options
-    perform_initial_snapshot: bool = False  # If True, perform initial snapshot before CDC monitoring
-    snapshot_completed_at: Optional[datetime] = None  # Timestamp when snapshot was completed (prevents re-running)
-
-
-class SQLMapping(BaseModel):
-    """SQL-based mapping configuration (DEPRECATED - use Mapping with mapping_type=SQL instead).
-    
-    Allows synchronization based on custom SQL queries instead of table-to-table mappings.
-    Useful for complex transformations, aggregations, or multi-table joins.
-    """
-    id: str = Field(..., description="Unique mapping ID")
-    name: str = Field(..., description="Mapping name/description")
-    source_query: str = Field(..., description="SQL query to extract data from source database")
-    destination_schema: str = Field(..., description="Destination schema name")
-    destination_table: str = Field(..., description="Destination table name")
-    insert_query: Optional[str] = Field(None, description="Custom INSERT query template (optional, auto-generated if not provided)")
-    update_query: Optional[str] = Field(None, description="Custom UPDATE query template (optional)")
-    delete_query: Optional[str] = Field(None, description="Custom DELETE query template (optional)")
-    
-    # Sync options
-    enabled: bool = True
-    sync_mode: str = Field(default="full", description="Sync mode: 'full' (replace all), 'incremental' (append only), 'upsert' (merge)")
-    sync_schedule: Optional[str] = Field(None, description="Cron expression for scheduled sync (optional)")
-    
-    # Key columns for upsert/update/delete operations
-    key_columns: Optional[List[str]] = Field(None, description="Column names that uniquely identify a row (for upsert/update/delete)")
-    
-    # Execution options
-    batch_size: int = Field(default=1000, description="Batch size for processing records")
-    timeout_seconds: int = Field(default=300, description="Query timeout in seconds")
-    
-    # Workset assignment
-    assigned_worksets: List[str] = Field(default_factory=list, description="List of working set IDs this mapping is assigned to")
-    
-    # Metadata
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
-    last_run_at: Optional[datetime] = None
-    last_run_status: Optional[str] = None  # success, failed, running
-    last_run_error: Optional[str] = None
 
 
 class WorkingSet(BaseModel):

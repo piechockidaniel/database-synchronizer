@@ -61,7 +61,7 @@ const WorkflowDesigner = (function() {
             config: {
                 server: '',
                 database: '',
-                port: 1433,
+                port: null,
                 use_windows_auth: true,
                 username: '',
                 password: ''
@@ -181,7 +181,7 @@ const WorkflowDesigner = (function() {
             config: {
                 server: '',
                 database: '',
-                port: 1433,
+                port: null,
                 use_windows_auth: true,
                 username: '',
                 password: ''
@@ -710,7 +710,7 @@ const WorkflowDesigner = (function() {
             case 'source_database':
                 {
                     const connConfig = connectionConfigs.source;
-                    const serverName = connConfig ? `${connConfig.server}:${connConfig.port || 1433}` : 'Not configured';
+                    const serverName = connConfig ? `${connConfig.server}:${connConfig.port || null}` : 'Not configured';
                     const databases = await loadDatabases('source');
                     
                     html += `
@@ -741,7 +741,7 @@ const WorkflowDesigner = (function() {
                     // Store connection config in node
                     if (connConfig) {
                         nodes[nodeId].config.server = connConfig.server;
-                        nodes[nodeId].config.port = connConfig.port || 1433;
+                        nodes[nodeId].config.port = connConfig.port || null;
                         nodes[nodeId].config.use_windows_auth = connConfig.use_windows_auth;
                         nodes[nodeId].config.username = connConfig.username || '';
                         nodes[nodeId].config.password = connConfig.password || '';
@@ -752,7 +752,7 @@ const WorkflowDesigner = (function() {
             case 'dest_database':
                 {
                     const connConfig = connectionConfigs.destination;
-                    const serverName = connConfig ? `${connConfig.server}:${connConfig.port || 1433}` : 'Not configured';
+                    const serverName = connConfig ? `${connConfig.server}:${connConfig.port || null}` : 'Not configured';
                     const databases = await loadDatabases('destination');
                     
                     html += `
@@ -783,7 +783,7 @@ const WorkflowDesigner = (function() {
                     // Store connection config in node
                     if (connConfig) {
                         nodes[nodeId].config.server = connConfig.server;
-                        nodes[nodeId].config.port = connConfig.port || 1433;
+                        nodes[nodeId].config.port = connConfig.port || null;
                         nodes[nodeId].config.use_windows_auth = connConfig.use_windows_auth;
                         nodes[nodeId].config.username = connConfig.username || '';
                         nodes[nodeId].config.password = connConfig.password || '';

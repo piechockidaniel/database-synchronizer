@@ -196,7 +196,7 @@ The system attempts to detect timestamp columns in source tables:
 #### Backend
 
 - `backend/models/schemas.py`
-  - Added `perform_initial_snapshot` and `snapshot_completed_at` to `TableMapping`
+  - Added `perform_initial_snapshot` and `snapshot_completed_at` to `Mapping`
   - Added `source_change_time` to `CDCEvent`
 
 - `backend/core/snapshot_service.py` (NEW)

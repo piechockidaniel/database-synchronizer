@@ -1,26 +1,26 @@
 """
 Workflow Converter
 
-Converts visual workflows into TableMapping configurations.
+Converts visual workflows into Mapping configurations.
 """
 
 import logging
-from typing import List, Dict, Tuple, Optional, Set
+from typing import List, Dict, Tuple, Optional
 from backend.models.workflow_schemas import VisualWorkflow, WorkflowNode, WorkflowEdge
-from backend.models.schemas import TableMapping, ColumnMapping
+from backend.models.schemas import Mapping, ColumnMapping
 
 logger = logging.getLogger(__name__)
 
 
 class WorkflowConverter:
-    """Converter for visual workflows to TableMapping configurations."""
+    """Converter for visual workflows to Mapping configurations."""
     
     def __init__(self):
         """Initialize converter."""
         pass
     
-    def compile_workflow(self, workflow: VisualWorkflow) -> Tuple[bool, Optional[TableMapping], List[str]]:
-        """Compile visual workflow into TableMapping.
+    def compile_workflow(self, workflow: VisualWorkflow) -> Tuple[bool, Optional[Mapping], List[str]]:
+        """Compile visual workflow into Mapping.
         
         Args:
             workflow: Visual workflow to compile
@@ -50,10 +50,10 @@ class WorkflowConverter:
             if errors:
                 return False, None, errors
             
-            # Create TableMapping
+            # Create Mapping
             mapping_id = f"mapping_{workflow.id}"
             
-            table_mapping = TableMapping(
+            table_mapping = Mapping(
                 id=mapping_id,
                 source_schema=source_info.get('schema', 'dbo'),
                 source_table=source_info.get('table', ''),

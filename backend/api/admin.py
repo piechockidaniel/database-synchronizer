@@ -515,6 +515,126 @@ async def test_query_with_connection(request: QueryTestRequest):
         }
 
 
+# Connection Library Management
+
+@router.get("/connection/list")
+async def list_connections():
+    """Get all saved connections from the library.
+
+    Returns:
+        List of saved connections
+    """
+    try:
+        connections = config_manager.get_all_connections()
+        return connections
+    except Exception as e:
+        logger.error(f"Error listing connections: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/connection/{connection_id}")
+async def get_connection(connection_id: str):
+    """Get a specific connection by ID.
+
+    Args:
+        connection_id: Connection ID
+
+    Returns:
+        Connection data
+    """
+    try:
+        connection = config_manager.get_connection(connection_id)
+        if not connection:
+            raise HTTPException(status_code=404, detail="Connection not found")
+        return connection
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting connection: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/connection/save")
+async def save_connection(connection: ConnectionConfig):
+    """Save a connection to the library.
+
+    Args:
+        connection: Connection configuration
+
+    Returns:
+        Success response
+    """
+    try:
+        connection_data = connection.model_dump(mode='json')
+        # Use connection name as ID if not provided
+        connection_id = connection_data.get('id', connection.name.lower().replace(' ', '_'))
+        connection_data['id'] = connection_id
+
+        success, message = config_manager.save_connection(connection_id, connection_data)
+
+        if not success:
+            raise HTTPException(status_code=400, detail=message)
+
+        return {"success": True, "message": message, "connection_id": connection_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving connection: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/connection/update")
+async def update_connection(connection: ConnectionConfig):
+    """Update an existing connection.
+
+    Args:
+        connection: Updated connection configuration
+
+    Returns:
+        Success response
+    """
+    try:
+        connection_data = connection.model_dump(mode='json')
+        connection_id = connection_data.get('id', connection.name.lower().replace(' ', '_'))
+        connection_data['id'] = connection_id
+
+        success, message = config_manager.update_connection(connection_id, connection_data)
+
+        if not success:
+            raise HTTPException(status_code=400, detail=message)
+
+        return {"success": True, "message": message}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating connection: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/connection/{connection_id}")
+async def delete_connection(connection_id: str):
+    """Delete a connection from the library.
+
+    Args:
+        connection_id: Connection ID to delete
+
+    Returns:
+        Success response
+    """
+    try:
+        success, message = config_manager.delete_connection(connection_id)
+
+        if not success:
+            raise HTTPException(status_code=404, detail=message)
+
+        return {"success": True, "message": message}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting connection: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Working Set Management
 
 @router.post("/workset/create")
@@ -898,7 +1018,7 @@ async def validate_workflow(workflow_id: str) -> WorkflowValidationResult:
 
 @router.post("/workflow/compile/{workflow_id}")
 async def compile_workflow_to_mapping(workflow_id: str) -> WorkflowCompileResult:
-    """Compile visual workflow into TableMapping.
+    """Compile visual workflow into Mapping.
     
     Args:
         workflow_id: Workflow ID to compile

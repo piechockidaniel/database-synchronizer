@@ -3,7 +3,7 @@ import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from backend.db.mssql_manager import MSSQLConnection
-from backend.models.schemas import CDCEvent, TableMapping, CDCOperation
+from backend.models.schemas import CDCEvent, Mapping, CDCOperation
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,7 @@ class LatencyMonitor:
     def record_latency(
         self,
         connection: MSSQLConnection,
-        mapping: TableMapping,
+        mapping: Mapping,
         event: CDCEvent,
         source_change_time: Optional[datetime] = None,
         source_record_id: Optional[str] = None

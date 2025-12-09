@@ -562,7 +562,7 @@ def validate_workflow(workflow_id):
 
 
 def compile_workflow(workflow_id):
-    """Compile workflow to TableMapping"""
+    """Compile workflow to Mapping"""
     response = requests.post(f"{API_BASE}/admin/workflow/compile/{workflow_id}")
     result = response.json()
     

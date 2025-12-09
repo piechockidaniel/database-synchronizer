@@ -1,12 +1,10 @@
 """Mapping execution service with transaction support."""
 import logging
-from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime
+from typing import List, Dict, Any
 from collections import defaultdict
 from backend.models.schemas import Mapping, MappingType
 from backend.db.mssql_manager import MSSQLConnection
 from backend.core.sql_mapping_service import sql_mapping_service
-from backend.core.sync_engine import sync_engine
 
 logger = logging.getLogger(__name__)
 
@@ -105,9 +103,9 @@ class MappingExecutor:
             dest_conn.connect()
         
         # Start transaction - disable autocommit and get cursor directly
-        original_autocommit = dest_conn._connection.autocommit
-        dest_conn._connection.autocommit = False
-        cursor = dest_conn._connection.cursor()
+        original_autocommit = dest_conn.connection.autocommit
+        dest_conn.connection.autocommit = False
+        cursor = dest_conn.connection.cursor()
         
         try:
             # Execute each mapping in the group
@@ -161,16 +159,16 @@ class MappingExecutor:
                         "error": str(e)
                     }
                     # Rollback transaction on error
-                    dest_conn._connection.rollback()
+                    dest_conn.connection.rollback()
                     raise
             
             # Commit transaction if all mappings succeeded
-            dest_conn._connection.commit()
+            dest_conn.connection.commit()
             logger.info(f"Successfully executed {len(mappings)} mappings in transaction")
             
         except Exception as e:
             logger.error(f"Transaction failed for mapping group: {e}")
-            dest_conn._connection.rollback()
+            dest_conn.connection.rollback()
             # Mark all mappings in group as failed
             for mapping in mappings:
                 if mapping.id not in results:
@@ -184,7 +182,7 @@ class MappingExecutor:
         finally:
             # Restore autocommit and close cursor
             cursor.close()
-            dest_conn._connection.autocommit = original_autocommit
+            dest_conn.connection.autocommit = original_autocommit
         
         return results
     

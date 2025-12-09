@@ -1,14 +1,51 @@
 // Admin page JavaScript
 
-const API_BASE = '/api';
+document.addEventListener('DOMContentLoaded', function() {
+    // Toggle credentials fields based on Windows Auth checkbox
+    srcWindowsAuth = document.getElementById('srcWindowsAuth');
+    if(srcWindowsAuth) {
+        srcWindowsAuth.addEventListener('change', function() {
+            document.getElementById('srcCredentials').style.display = this.checked ? 'none' : 'block';
+        });
+    }
 
-// Toggle credentials fields based on Windows Auth checkbox
-document.getElementById('srcWindowsAuth').addEventListener('change', function() {
-    document.getElementById('srcCredentials').style.display = this.checked ? 'none' : 'block';
-});
+    destWindowsAuth = document.getElementById('destWindowsAuth');
+    if(destWindowsAuth) {
+        destWindowsAuth.addEventListener('change', function() {
+            document.getElementById('destCredentials').style.display = this.checked ? 'none' : 'block';
+        });
+    }
 
-document.getElementById('destWindowsAuth').addEventListener('change', function() {
-    document.getElementById('destCredentials').style.display = this.checked ? 'none' : 'block';
+    // Save connection
+    sourceConnectionForm = document.getElementById('sourceConnectionForm');
+    if(sourceConnectionForm) {
+        sourceConnectionForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            await saveConnection('source');
+        });
+    }
+
+    destConnectionForm = document.getElementById('destConnectionForm');
+    if(destConnectionForm) {
+        destConnectionForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            await saveConnection('destination');
+        });
+    }
+
+    // Load initial data when tabs are clicked
+    cdcTab = document.getElementById('cdc-tab');
+    if(cdcTab) {
+        cdcTab.addEventListener('click', loadConnectionsForCDC);
+    }
+    mappingsTab = document.getElementById('mappings-tab');
+    if(mappingsTab) {
+        mappingsTab.addEventListener('click', loadMappings);
+    }
+    worksetsTab = document.getElementById('worksets-tab');
+    if(worksetsTab) {
+        worksetsTab.addEventListener('click', loadWorksets);
+    }
 });
 
 // Test connection
@@ -47,16 +84,7 @@ async function testConnection(type) {
     }
 }
 
-// Save connection
-document.getElementById('sourceConnectionForm').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    await saveConnection('source');
-});
 
-document.getElementById('destConnectionForm').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    await saveConnection('destination');
-});
 
 async function saveConnection(type) {
     const prefix = type === 'source' ? 'src' : 'dest';
@@ -91,19 +119,72 @@ async function saveConnection(type) {
 }
 
 // CDC Management
+// Load connections for CDC management
+async function loadConnectionsForCDC() {
+    const select = document.getElementById('cdcConnectionSelector');
+    if (!select) return;
+
+    try {
+        const response = await fetch(`${API_BASE}/admin/connection/list`);
+        if (!response.ok) {
+            console.error('Failed to load connections');
+            return;
+        }
+
+        const connections = await response.json();
+
+        select.innerHTML = '<option value="">-- Select a connection --</option>';
+        connections.forEach(conn => {
+            const option = document.createElement('option');
+            option.value = conn.id;
+            const authType = conn.use_windows_auth ? 'Windows Auth' : 'SQL Auth';
+            option.textContent = `${conn.name} (${conn.server}/${conn.database}) - ${authType}`;
+            select.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error loading connections:', error);
+        showAlert('danger', `Error loading connections: ${error.message}`);
+    }
+}
+
+// Get selected connection config
+async function getSelectedCDCConnection() {
+    const connectionId = document.getElementById('cdcConnectionSelector').value;
+    if (!connectionId) {
+        showAlert('warning', 'Please select a connection first');
+        return null;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/admin/connection/${connectionId}`);
+        if (!response.ok) throw new Error('Failed to load connection');
+        return await response.json();
+    } catch (error) {
+        showAlert('danger', `Error loading connection: ${error.message}`);
+        return null;
+    }
+}
+
 async function checkCDCStatus() {
     const statusDiv = document.getElementById('cdcStatus');
     const tablesDiv = document.getElementById('cdcTables');
-    
+
+    const connection = await getSelectedCDCConnection();
+    if (!connection) return;
+
     try {
         statusDiv.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Checking CDC status...';
-        
-        const response = await fetch(`${API_BASE}/admin/cdc/status?connection_type=source`);
+
+        const response = await fetch(`${API_BASE}/admin/cdc/check-status`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({connection})
+        });
         const result = await response.json();
-        
+
         if (result.cdc_enabled) {
             statusDiv.innerHTML = `<div class="alert alert-success">CDC is enabled on database: ${result.database}</div>`;
-            
+
             if (result.tables && result.tables.length > 0) {
                 let tableHtml = '<table class="table"><thead><tr><th>Schema</th><th>Table</th><th>Capture Instance</th></tr></thead><tbody>';
                 result.tables.forEach(table => {
@@ -124,15 +205,18 @@ async function checkCDCStatus() {
 }
 
 async function enableDatabaseCDC() {
+    const connection = await getSelectedCDCConnection();
+    if (!connection) return;
+
     try {
-        const response = await fetch(`${API_BASE}/admin/cdc/enable-db`, {
+        const response = await fetch(`${API_BASE}/admin/cdc/enable-database`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({connection_type: 'source'})
+            body: JSON.stringify({connection})
         });
-        
+
         const result = await response.json();
-        
+
         if (result.success) {
             showAlert('success', result.message);
             checkCDCStatus();
@@ -145,27 +229,30 @@ async function enableDatabaseCDC() {
 }
 
 async function enableTableCDC() {
+    const connection = await getSelectedCDCConnection();
+    if (!connection) return;
+
     const schema = document.getElementById('cdcSchema').value;
     const table = document.getElementById('cdcTable').value;
-    
+
     if (!schema || !table) {
         showAlert('warning', 'Please enter schema and table name');
         return;
     }
-    
+
     try {
-        const response = await fetch(`${API_BASE}/admin/cdc/enable-table`, {
+        const response = await fetch(`${API_BASE}/admin/cdc/enable-table-with-connection`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
-                connection_type: 'source',
+                connection: connection,
                 schema_name: schema,
                 table_name: table
             })
         });
-        
+
         const result = await response.json();
-        
+
         if (result.success) {
             showAlert('success', result.message);
             checkCDCStatus();
@@ -199,13 +286,32 @@ async function loadMappings() {
         
         let html = '';
         mappings.forEach(mapping => {
-            const typeBadge = mapping.mapping_type === 'table' 
-                ? '<span class="badge bg-primary">Table</span>'
-                : '<span class="badge bg-info">SQL</span>';
-            
+            let typeBadge = '';
+            if (mapping.is_multi_source) {
+                typeBadge = '<span class="badge bg-success">Multi-Source</span>';
+            } else if (mapping.mapping_type === 'table') {
+                typeBadge = '<span class="badge bg-primary">Table</span>';
+            } else {
+                typeBadge = '<span class="badge bg-info">SQL</span>';
+            }
+
             let detailsHtml = '';
-            
-            if (mapping.mapping_type === 'table') {
+
+            if (mapping.is_multi_source) {
+                // Multi-source mapping details
+                const sourceCount = mapping.sources ? mapping.sources.length : 0;
+                const operationCount = mapping.merge_pattern && mapping.merge_pattern.operations
+                    ? mapping.merge_pattern.operations.length
+                    : 0;
+
+                detailsHtml = `
+                    <strong>Sources:</strong> ${sourceCount} database${sourceCount !== 1 ? 's' : ''}<br>
+                    <strong>Operations:</strong> ${operationCount} merge operation${operationCount !== 1 ? 's' : ''}<br>
+                    ${mapping.sources && mapping.sources.length > 0
+                        ? `<strong>Aliases:</strong> ${mapping.sources.map(s => s.alias).join(', ')}<br>`
+                        : ''}
+                `;
+            } else if (mapping.mapping_type === 'table') {
                 // Table mapping details
                 let simpleCount = 0;
                 let complexCount = 0;
@@ -256,6 +362,11 @@ async function loadMappings() {
                                 </p>
                             </div>
                             <div>
+                                ${mapping.is_multi_source ? `
+                                    <button class="btn btn-sm btn-success" onclick="startMultiSourceSync('${mapping.id}')">
+                                        <i class="bi bi-play-fill"></i> Start Sync
+                                    </button>
+                                ` : ''}
                                 <button class="btn btn-sm btn-info" onclick="viewMappingDetails('${mapping.id}')">
                                     <i class="bi bi-eye"></i> View
                                 </button>
@@ -1675,9 +1786,7 @@ function showAlert(type, message) {
     }, 5000);
 }
 
-// Load initial data when tabs are clicked
-document.getElementById('mappings-tab').addEventListener('click', loadMappings);
-document.getElementById('worksets-tab').addEventListener('click', loadWorksets);
+
 
 // ==================== DUCKDB TRANSFORMATION FUNCTIONS ====================
 
@@ -1907,7 +2016,216 @@ function viewDuckDBScripts() {
     showAlert('info', 'DuckDB scripts are located in the duckdb_scripts/ directory. Templates in duckdb_scripts/templates/, custom scripts in duckdb_scripts/custom/.');
 }
 
+// ==================== MULTI-SOURCE SYNC FUNCTIONS ====================
 
+async function startMultiSourceSync(mappingId) {
+    try {
+        showLoading('Starting multi-source synchronization...');
+
+        const response = await fetch(`${API_BASE}/operations/multi-source/start?mapping_id=${mappingId}`, {
+            method: 'POST'
+        });
+
+        const result = await response.json();
+        hideLoading();
+
+        if (result.success) {
+            showAlert('success', result.message);
+            // Refresh multi-source status
+            updateMultiSourceStatus();
+        } else {
+            showAlert('danger', result.message || 'Failed to start multi-source sync');
+        }
+    } catch (error) {
+        hideLoading();
+        showAlert('danger', `Error starting multi-source sync: ${error.message}`);
+    }
+}
+
+async function stopMultiSourceSync() {
+    try {
+        showLoading('Stopping multi-source synchronization...');
+
+        const response = await fetch(`${API_BASE}/operations/multi-source/stop`, {
+            method: 'POST'
+        });
+
+        const result = await response.json();
+        hideLoading();
+
+        if (result.success) {
+            showAlert('success', result.message);
+            // Refresh multi-source status
+            updateMultiSourceStatus();
+        } else {
+            showAlert('danger', result.message || 'Failed to stop multi-source sync');
+        }
+    } catch (error) {
+        hideLoading();
+        showAlert('danger', `Error stopping multi-source sync: ${error.message}`);
+    }
+}
+
+async function pauseMultiSourceSync() {
+    try {
+        const response = await fetch(`${API_BASE}/operations/multi-source/pause`, {
+            method: 'POST'
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showAlert('success', result.message);
+            updateMultiSourceStatus();
+        } else {
+            showAlert('danger', result.message || 'Failed to pause multi-source sync');
+        }
+    } catch (error) {
+        showAlert('danger', `Error pausing multi-source sync: ${error.message}`);
+    }
+}
+
+async function resumeMultiSourceSync() {
+    try {
+        const response = await fetch(`${API_BASE}/operations/multi-source/resume`, {
+            method: 'POST'
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showAlert('success', result.message);
+            updateMultiSourceStatus();
+        } else {
+            showAlert('danger', result.message || 'Failed to resume multi-source sync');
+        }
+    } catch (error) {
+        showAlert('danger', `Error resuming multi-source sync: ${error.message}`);
+    }
+}
+
+async function updateMultiSourceStatus() {
+    try {
+        const response = await fetch(`${API_BASE}/operations/multi-source/status`);
+        const status = await response.json();
+
+        renderMultiSourceStatus(status);
+    } catch (error) {
+        console.error('Error fetching multi-source status:', error);
+    }
+}
+
+function renderMultiSourceStatus(status) {
+    const container = document.getElementById('multiSourceStatusContainer');
+    if (!container) return;
+
+    if (!status.is_running) {
+        container.innerHTML = `
+            <div class="alert alert-secondary">
+                <i class="bi bi-info-circle"></i> Multi-source sync is not running
+            </div>
+        `;
+        return;
+    }
+
+    const statusBadge = status.is_paused ?
+        '<span class="badge bg-warning">Paused</span>' :
+        '<span class="badge bg-success">Running</span>';
+
+    let html = `
+        <div class="card">
+            <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+                <div>
+                    <i class="bi bi-diagram-3"></i> Multi-Source Sync Status
+                    ${statusBadge}
+                </div>
+                <div class="btn-group btn-group-sm">
+                    ${status.is_paused ?
+                        `<button class="btn btn-sm btn-success" onclick="resumeMultiSourceSync()">
+                            <i class="bi bi-play-fill"></i> Resume
+                        </button>` :
+                        `<button class="btn btn-sm btn-warning" onclick="pauseMultiSourceSync()">
+                            <i class="bi bi-pause-fill"></i> Pause
+                        </button>`
+                    }
+                    <button class="btn btn-sm btn-danger" onclick="stopMultiSourceSync()">
+                        <i class="bi bi-stop-fill"></i> Stop
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <h6 class="card-title">${status.mapping_name || 'Unknown Mapping'}</h6>
+
+                <div class="row mt-3">
+                    <div class="col-md-6">
+                        <strong>Sources:</strong> ${status.source_count || 0}
+                        <ul class="list-unstyled mt-2">
+                            ${(status.sources || []).map(src => `
+                                <li>
+                                    <span class="badge bg-primary">${src.alias}</span>
+                                    ${src.schema}.${src.table}
+                                    ${src.cdc_enabled ? '<i class="bi bi-check-circle text-success" title="CDC Enabled"></i>' : ''}
+                                </li>
+                            `).join('')}
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <div><strong>Queue Size:</strong> ${status.queue_size || 0}</div>
+                        <div><strong>Pending Batches:</strong> ${status.pending_batches || 0}</div>
+                    </div>
+                </div>
+
+                ${status.sync_statistics ? `
+                    <hr>
+                    <h6>Synchronization Statistics</h6>
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="text-center">
+                                <div class="display-6">${status.sync_statistics.events_processed || 0}</div>
+                                <small class="text-muted">Events Processed</small>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="text-center">
+                                <div class="display-6">${status.sync_statistics.inserts || 0}</div>
+                                <small class="text-muted">Inserts</small>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="text-center">
+                                <div class="display-6">${status.sync_statistics.updates || 0}</div>
+                                <small class="text-muted">Updates</small>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="text-center">
+                                <div class="display-6">${status.sync_statistics.errors || 0}</div>
+                                <small class="text-muted text-danger">Errors</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mt-2">
+                        <div class="col-md-6">
+                            <strong>Runtime:</strong> ${(status.sync_statistics.runtime_seconds || 0).toFixed(2)} seconds
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Events/Second:</strong> ${(status.sync_statistics.events_per_second || 0).toFixed(2)}
+                        </div>
+                    </div>
+                ` : ''}
+            </div>
+        </div>
+    `;
+
+    container.innerHTML = html;
+}
+
+// Auto-refresh multi-source status every 5 seconds if running
+setInterval(() => {
+    if (document.getElementById('multiSourceStatusContainer')) {
+        updateMultiSourceStatus();
+    }
+}, 5000);
 
 
 

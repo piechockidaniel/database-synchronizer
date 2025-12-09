@@ -14,11 +14,17 @@ from backend.core.latency_monitor import latency_monitor
 from backend.core.sql_mapping_service import sql_mapping_service
 from backend.core.mapping_executor import mapping_executor
 from backend.models.schemas import MappingType
+from backend.core.multi_source_cdc_monitor import MultiSourceCDCMonitor
+from backend.core.multi_source_sync_engine import MultiSourceSyncEngine
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Global multi-source monitor and sync engine instances
+multi_source_monitor: Optional[MultiSourceCDCMonitor] = None
+multi_source_sync_engine: Optional[MultiSourceSyncEngine] = None
 
 
 @router.post("/start")
@@ -479,7 +485,7 @@ async def execute_all_sql_mappings() -> Dict[str, Any]:
             "total_rows_processed": total_rows,
             "results": results
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -487,6 +493,217 @@ async def execute_all_sql_mappings() -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==================== MULTI-SOURCE SYNC ENDPOINTS ====================
+
+@router.post("/multi-source/start")
+async def start_multi_source_sync(mapping_id: str):
+    """Start multi-source CDC monitoring and synchronization for a specific mapping.
+
+    Args:
+        mapping_id: ID of the multi-source mapping to start
+
+    Returns:
+        Success response
+    """
+    global multi_source_monitor, multi_source_sync_engine
+
+    try:
+        # Get the mapping
+        mapping = config_manager.get_mapping(mapping_id)
+        if not mapping:
+            raise HTTPException(status_code=404, detail=f"Mapping {mapping_id} not found")
+
+        if not mapping.is_multi_source:
+            raise HTTPException(status_code=400, detail="Mapping is not a multi-source mapping")
+
+        # Stop existing sync if running
+        if multi_source_monitor and multi_source_monitor.is_running:
+            logger.info("Stopping existing multi-source sync...")
+            await multi_source_monitor.stop()
+            if multi_source_sync_engine:
+                await multi_source_sync_engine.stop()
+
+        # Create destination connection
+        dest_config = mapping.destination_connection
+        if not dest_config:
+            # Try to get from active working set
+            active_workset = config_manager.get_active_workset()
+            if active_workset:
+                dest_config = active_workset.destination_connection
+            else:
+                raise HTTPException(status_code=400, detail="No destination connection configured")
+
+        dest_conn = connection_pool.set_destination(dest_config)
+
+        # Create multi-source CDC monitor
+        multi_source_monitor = MultiSourceCDCMonitor(mapping)
+
+        # Create multi-source sync engine
+        multi_source_sync_engine = MultiSourceSyncEngine()
+        multi_source_sync_engine.set_mapping(mapping)
+        multi_source_sync_engine.set_destination_connection(dest_conn)
+        multi_source_sync_engine.set_event_queue(multi_source_monitor.event_queue)
+
+        # Add history logging listener
+        def log_to_history(event, status, error):
+            history_manager.log_event(event, status, error)
+
+        multi_source_sync_engine.add_event_listener(log_to_history)
+
+        # Start monitor
+        await multi_source_monitor.start()
+
+        # Start sync engine
+        await multi_source_sync_engine.start()
+
+        logger.info(f"Started multi-source sync for mapping: {mapping.name}")
+
+        return {
+            "success": True,
+            "message": f"Multi-source synchronization started for: {mapping.name}",
+            "mapping_id": mapping_id,
+            "source_count": len(mapping.sources)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error starting multi-source sync: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/multi-source/stop")
+async def stop_multi_source_sync():
+    """Stop multi-source CDC monitoring and synchronization.
+
+    Returns:
+        Success response
+    """
+    global multi_source_monitor, multi_source_sync_engine
+
+    try:
+        if not multi_source_monitor or not multi_source_monitor.is_running:
+            return {
+                "success": True,
+                "message": "Multi-source sync is not running"
+            }
+
+        # Stop sync engine
+        if multi_source_sync_engine:
+            await multi_source_sync_engine.stop()
+
+        # Stop CDC monitor
+        await multi_source_monitor.stop()
+
+        # Flush history
+        history_manager.flush_buffer()
+
+        logger.info("Stopped multi-source synchronization")
+
+        return {
+            "success": True,
+            "message": "Multi-source synchronization stopped"
+        }
+
+    except Exception as e:
+        logger.error(f"Error stopping multi-source sync: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/multi-source/pause")
+async def pause_multi_source_sync():
+    """Pause multi-source CDC monitoring.
+
+    Returns:
+        Success response
+    """
+    global multi_source_monitor
+
+    try:
+        if not multi_source_monitor or not multi_source_monitor.is_running:
+            raise HTTPException(status_code=400, detail="Multi-source sync is not running")
+
+        multi_source_monitor.pause()
+
+        logger.info("Paused multi-source synchronization")
+
+        return {
+            "success": True,
+            "message": "Multi-source synchronization paused"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error pausing multi-source sync: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/multi-source/resume")
+async def resume_multi_source_sync():
+    """Resume multi-source CDC monitoring.
+
+    Returns:
+        Success response
+    """
+    global multi_source_monitor
+
+    try:
+        if not multi_source_monitor or not multi_source_monitor.is_running:
+            raise HTTPException(status_code=400, detail="Multi-source sync is not running")
+
+        multi_source_monitor.resume()
+
+        logger.info("Resumed multi-source synchronization")
+
+        return {
+            "success": True,
+            "message": "Multi-source synchronization resumed"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resuming multi-source sync: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/multi-source/status")
+async def get_multi_source_status():
+    """Get current multi-source synchronization status.
+
+    Returns:
+        Status information
+    """
+    global multi_source_monitor, multi_source_sync_engine
+
+    try:
+        if not multi_source_monitor:
+            return {
+                "is_running": False,
+                "message": "Multi-source sync not initialized"
+            }
+
+        monitor_status = multi_source_monitor.get_status()
+
+        sync_stats = {}
+        if multi_source_sync_engine:
+            sync_stats = multi_source_sync_engine.get_statistics()
+
+        return {
+            "is_running": monitor_status.get('is_running', False),
+            "is_paused": monitor_status.get('is_paused', False),
+            "mapping_name": monitor_status.get('mapping_name'),
+            "source_count": monitor_status.get('source_count', 0),
+            "sources": monitor_status.get('sources', []),
+            "queue_size": monitor_status.get('queue_size', 0),
+            "pending_batches": monitor_status.get('pending_batches', 0),
+            "sync_statistics": sync_stats
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting multi-source status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 

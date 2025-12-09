@@ -5,7 +5,6 @@ Manages DuckDB transformation scripts stored in the file system.
 Provides script repository, loading, validation, and execution support.
 """
 
-import os
 import logging
 from typing import List, Dict, Optional, Tuple
 from pathlib import Path

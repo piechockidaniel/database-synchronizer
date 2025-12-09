@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python main.py:*)",
+      "Bash(timeout /t 3)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill /F /PID 73884)",
+      "Bash(taskkill //F //PID 73884)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

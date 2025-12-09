@@ -63,7 +63,7 @@ class MSSQLConnection:
             True if connection successful, False otherwise
         """
         try:
-            self._connection = pyodbc.connect(self._connection_string)
+            self.connection = pyodbc.connect(self._connection_string)
             logger.info(f"Connected to {self.config.server}/{self.config.database}")
             return True
         except Exception as e:
@@ -72,14 +72,14 @@ class MSSQLConnection:
     
     def disconnect(self):
         """Close database connection."""
-        if self._connection:
+        if self.connection:
             try:
                 self.connection.close()
                 logger.info(f"Disconnected from {self.config.server}/{self.config.database}")
             except Exception as e:
                 logger.error(f"Error disconnecting: {e}")
             finally:
-                self._connection = None
+                self.connection = None
     
     def is_connected(self) -> bool:
         """Check if connection is active.
@@ -87,7 +87,7 @@ class MSSQLConnection:
         Returns:
             True if connected, False otherwise
         """
-        if not self._connection:
+        if not self.connection:
             return False
         try:
             cursor = self.connection.cursor()
@@ -105,7 +105,7 @@ class MSSQLConnection:
         Yields:
             Database cursor
         """
-        if not self._connection:
+        if not self.connection:
             if not self.connect():
                 raise Exception("Failed to establish database connection")
         

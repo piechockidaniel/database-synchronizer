@@ -248,17 +248,17 @@ def main():
     print("="*60)
     
     # Configuration - MODIFY THESE VALUES FOR YOUR ENVIRONMENT
-    SOURCE_SERVER = "localhost"
-    SOURCE_DATABASE = "SourceDB"
-    DEST_SERVER = "localhost"
-    DEST_DATABASE = "DestDB"
+    source_server = "localhost"
+    source_database = "SourceDB"
+    dest_server = "localhost"
+    dest_database = "DestDB"
     
     # Test table configuration
-    SCHEMA = "dbo"
-    TABLE = "TestTable"
+    schema = "dbo"
+    table = "TestTable"
     
     # Column mappings - MODIFY FOR YOUR TABLE STRUCTURE
-    COLUMN_MAPPINGS = [
+    column_mappings = [
         {
             "source_column": "ID",
             "destination_column": "ID",
@@ -278,12 +278,12 @@ def main():
     
     try:
         # Step 1: Test and configure connections
-        source_config = test_connection("Source", SOURCE_SERVER, SOURCE_DATABASE)
+        source_config = test_connection("Source", source_server, source_database)
         if not source_config:
             print("\n✗ Source connection failed. Exiting.")
             return
         
-        dest_config = test_connection("Destination", DEST_SERVER, DEST_DATABASE)
+        dest_config = test_connection("Destination", dest_server, dest_database)
         if not dest_config:
             print("\n✗ Destination connection failed. Exiting.")
             return
@@ -299,16 +299,16 @@ def main():
         enable_database_cdc()
         time.sleep(2)  # Give CDC time to initialize
         
-        enable_table_cdc(SCHEMA, TABLE)
+        enable_table_cdc(schema, table)
         time.sleep(2)
         
         # Step 4: Create table mapping
-        mapping_id = f"mapping_{SCHEMA}_{TABLE}"
+        mapping_id = f"mapping_{schema}_{table}"
         if not create_table_mapping(
             mapping_id, 
-            SCHEMA, TABLE, 
-            SCHEMA, TABLE,
-            COLUMN_MAPPINGS
+            schema, table,
+            schema, table,
+            column_mappings
         ):
             return
         

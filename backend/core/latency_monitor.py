@@ -3,7 +3,7 @@ import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from backend.db.mssql_manager import MSSQLConnection
-from backend.models.schemas import CDCEvent, Mapping, CDCOperation
+from backend.models.schemas import CDCEvent, Mapping
 
 logger = logging.getLogger(__name__)
 

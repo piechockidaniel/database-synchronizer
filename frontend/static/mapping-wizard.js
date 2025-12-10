@@ -351,24 +351,12 @@ function collectStepData() {
             const connType = document.getElementById('wizardConnectionType').value;
             mappingData._test_connection_type = connType;
 
-            if (connType === 'workset') {
+            if (connType === 'library') {
+                const connectionId = document.getElementById('wizardConnectionLibrary').value;
+                mappingData._test_connection = {type: 'library', connection_id: connectionId};
+            } else if (connType === 'workset') {
                 const worksetId = document.getElementById('wizardConnectionWorkset').value;
                 mappingData._test_connection = {type: 'workset', workset_id: worksetId};
-            } else {
-                // Collect manual connection details
-                const portValue = document.getElementById('wizardTestPort').value.trim();
-                mappingData._test_connection = {
-                    type: 'manual',
-                    server: document.getElementById('wizardTestServer').value.trim(),
-                    database: document.getElementById('wizardTestDatabase').value.trim(),
-                    username: document.getElementById('wizardTestUsername').value.trim(),
-                    password: document.getElementById('wizardTestPassword').value,
-                    use_windows_auth: document.getElementById('wizardTestWindowsAuth').checked
-                };
-                // Only include port if specified
-                if (portValue) {
-                    mappingData._test_connection.port = parseInt(portValue);
-                }
             }
 
             if (mappingData.mapping_type === 'table') {
@@ -483,22 +471,45 @@ async function saveMappingFromWizard() {
 // Connection selector functions
 function onWizardConnectionTypeChange() {
     const connType = document.getElementById('wizardConnectionType').value;
+    const libraryDiv = document.getElementById('wizardConnectionLibraryDiv');
     const worksetDiv = document.getElementById('wizardConnectionWorksetDiv');
-    const manualDiv = document.getElementById('wizardConnectionManualDiv');
 
-    if (connType === 'workset') {
-        worksetDiv.style.display = 'block';
-        manualDiv.style.display = 'none';
-    } else {
+    if (connType === 'library') {
+        libraryDiv.style.display = 'block';
         worksetDiv.style.display = 'none';
-        manualDiv.style.display = 'block';
+        loadConnectionsForWizard();
+    } else if (connType === 'workset') {
+        libraryDiv.style.display = 'none';
+        worksetDiv.style.display = 'block';
+        loadWorksetsForConnectionSelector();
     }
 }
 
-function onWizardTestWindowsAuthChange() {
-    const useWinAuth = document.getElementById('wizardTestWindowsAuth').checked;
-    const credDiv = document.getElementById('wizardTestCredentialsDiv');
-    credDiv.style.display = useWinAuth ? 'none' : 'block';
+async function loadConnectionsForWizard() {
+    const select = document.getElementById('wizardConnectionLibrary');
+    if (!select) return;
+
+    try {
+        const response = await fetch(`${API_BASE}/admin/connection/list`);
+        if (!response.ok) {
+            console.error('Failed to load connections');
+            return;
+        }
+
+        const connections = await response.json();
+
+        select.innerHTML = '<option value="">-- Select Connection --</option>';
+        connections.forEach(conn => {
+            const option = document.createElement('option');
+            option.value = conn.id;
+            const authType = conn.use_windows_auth ? 'Windows Auth' : 'SQL Auth';
+            option.textContent = `${conn.name} (${conn.server}/${conn.database}) - ${authType}`;
+            select.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error loading connections:', error);
+        showAlert('danger', `Error loading connections: ${error.message}`);
+    }
 }
 
 async function loadWorksetsForConnectionSelector() {
@@ -529,7 +540,25 @@ async function wizardLoadColumns() {
     const connType = document.getElementById('wizardConnectionType').value;
     let connectionConfig;
 
-    if (connType === 'workset') {
+    if (connType === 'library') {
+        const connectionId = document.getElementById('wizardConnectionLibrary').value;
+        if (!connectionId) {
+            showAlert('warning', 'Please select a connection from the library first');
+            return;
+        }
+
+        // Fetch connection from library
+        showLoading('Loading connection from library...');
+        try {
+            const response = await fetch(`${API_BASE}/admin/connection/${connectionId}`);
+            if (!response.ok) throw new Error('Failed to load connection');
+            connectionConfig = await response.json();
+        } catch (error) {
+            hideLoading();
+            showAlert('danger', `Error loading connection: ${error.message}`);
+            return;
+        }
+    } else if (connType === 'workset') {
         const worksetId = document.getElementById('wizardConnectionWorkset').value;
         if (!worksetId) {
             showAlert('warning', 'Please select a working set first');
@@ -549,26 +578,9 @@ async function wizardLoadColumns() {
             return;
         }
     } else {
-        // Manual connection
-        const portValue = document.getElementById('wizardTestPort').value.trim();
-        connectionConfig = {
-            name: 'wizard_test',
-            server: document.getElementById('wizardTestServer').value.trim(),
-            database: document.getElementById('wizardTestDatabase').value.trim(),
-            username: document.getElementById('wizardTestUsername').value.trim(),
-            password: document.getElementById('wizardTestPassword').value,
-            use_windows_auth: document.getElementById('wizardTestWindowsAuth').checked
-        };
-
-        // Only include port if specified
-        if (portValue) {
-            connectionConfig.port = parseInt(portValue);
-        }
-
-        if (!connectionConfig.server || !connectionConfig.database) {
-            showAlert('warning', 'Please provide server and database details');
-            return;
-        }
+        hideLoading();
+        showAlert('danger', 'Invalid connection type selected');
+        return;
     }
 
     // Get schema and table names
@@ -775,7 +787,25 @@ async function testSQLQuery() {
     const connType = document.getElementById('wizardConnectionType').value;
     let connectionConfig;
 
-    if (connType === 'workset') {
+    if (connType === 'library') {
+        const connectionId = document.getElementById('wizardConnectionLibrary').value;
+        if (!connectionId) {
+            showAlert('warning', 'Please select a connection from the library to test the query');
+            return;
+        }
+
+        // Fetch connection from library
+        showLoading('Loading connection from library...');
+        try {
+            const response = await fetch(`${API_BASE}/admin/connection/${connectionId}`);
+            if (!response.ok) throw new Error('Failed to load connection');
+            connectionConfig = await response.json();
+        } catch (error) {
+            hideLoading();
+            showAlert('danger', `Error loading connection: ${error.message}`);
+            return;
+        }
+    } else if (connType === 'workset') {
         const worksetId = document.getElementById('wizardConnectionWorkset').value;
         if (!worksetId) {
             showAlert('warning', 'Please select a working set to test the query');
@@ -795,26 +825,9 @@ async function testSQLQuery() {
             return;
         }
     } else {
-        // Manual connection
-        const portValue = document.getElementById('wizardTestPort').value.trim();
-        connectionConfig = {
-            name: 'wizard_test',
-            server: document.getElementById('wizardTestServer').value.trim(),
-            database: document.getElementById('wizardTestDatabase').value.trim(),
-            username: document.getElementById('wizardTestUsername').value.trim(),
-            password: document.getElementById('wizardTestPassword').value,
-            use_windows_auth: document.getElementById('wizardTestWindowsAuth').checked
-        };
-
-        // Only include port if specified
-        if (portValue) {
-            connectionConfig.port = parseInt(portValue);
-        }
-
-        if (!connectionConfig.server || !connectionConfig.database) {
-            showAlert('warning', 'Please provide connection details to test the query');
-            return;
-        }
+        hideLoading();
+        showAlert('danger', 'Invalid connection type selected');
+        return;
     }
 
     showLoading('Testing query...');
@@ -1087,114 +1100,12 @@ function populateReviewContent() {
 function showCronHelper() {
     alert(`Cron Expression Examples:
 
-Every minute: * * * * *
-Every hour: 0 * * * *
-Every day at midnight: 0 0 * * *
-Every Monday at 9 AM: 0 9 * * 1
-Every 15 minutes: */15 * * * *
-Every day at 2:30 PM: 30 14 * * *
+    Every minute: * * * * *
+    Every hour: 0 * * * *
+    Every day at midnight: 0 0 * * *
+    Every Monday at 9 AM: 0 9 * * 1
+    Every 15 minutes: */15 * * * *
+    Every day at 2:30 PM: 30 14 * * *
 
-Format: minute hour day month weekday`);
-}
-
-// ============================================================================
-// LOADING INDICATOR SYSTEM
-// ============================================================================
-
-let loadingOverlay = null;
-
-function showLoading(message = 'Processing...') {
-    // Remove existing overlay if any
-    hideLoading();
-
-    // Create overlay
-    loadingOverlay = document.createElement('div');
-    loadingOverlay.className = 'wizard-loading-overlay';
-    loadingOverlay.innerHTML = `
-        <div class="wizard-loading-content">
-            <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            <div class="wizard-loading-message">${message}</div>
-        </div>
-    `;
-
-    document.body.appendChild(loadingOverlay);
-
-    // Trigger animation
-    setTimeout(() => {
-        loadingOverlay.classList.add('show');
-    }, 10);
-}
-
-function hideLoading() {
-    if (loadingOverlay) {
-        loadingOverlay.classList.remove('show');
-        setTimeout(() => {
-            if (loadingOverlay && loadingOverlay.parentNode) {
-                loadingOverlay.parentNode.removeChild(loadingOverlay);
-            }
-            loadingOverlay = null;
-        }, 300);
-    }
-}
-
-// ============================================================================
-// ALERT/NOTIFICATION SYSTEM
-// ============================================================================
-
-let alertContainer = null;
-
-function initAlertContainer() {
-    if (!alertContainer) {
-        alertContainer = document.createElement('div');
-        alertContainer.className = 'wizard-alert-container';
-        document.body.appendChild(alertContainer);
-    }
-}
-
-function showAlert(type, message, duration = 5000) {
-    initAlertContainer();
-
-    // Map types to Bootstrap colors and icons
-    const typeConfig = {
-        success: { icon: 'bi-check-circle-fill', color: 'success' },
-        danger: { icon: 'bi-exclamation-circle-fill', color: 'danger' },
-        warning: { icon: 'bi-exclamation-triangle-fill', color: 'warning' },
-        info: { icon: 'bi-info-circle-fill', color: 'info' }
-    };
-
-    const config = typeConfig[type] || typeConfig.info;
-
-    // Create alert element
-    const alertDiv = document.createElement('div');
-    alertDiv.className = `wizard-alert wizard-alert-${config.color}`;
-    alertDiv.innerHTML = `
-        <div class="wizard-alert-content">
-            <i class="bi ${config.icon} wizard-alert-icon"></i>
-            <div class="wizard-alert-message">${message}</div>
-            <button type="button" class="wizard-alert-close" onclick="this.parentElement.parentElement.remove()">
-                <i class="bi bi-x"></i>
-            </button>
-        </div>
-    `;
-
-    alertContainer.appendChild(alertDiv);
-
-    // Trigger animation
-    setTimeout(() => {
-        alertDiv.classList.add('show');
-    }, 10);
-
-    // Auto-remove after duration
-    if (duration > 0) {
-        setTimeout(() => {
-            alertDiv.classList.remove('show');
-            setTimeout(() => {
-                if (alertDiv.parentNode) {
-                    alertDiv.parentNode.removeChild(alertDiv);
-                }
-            }, 300);
-        }, duration);
-    }
+    Format: minute hour day month weekday`);
 }

@@ -42,6 +42,11 @@
                 </button>
             </li>
             <li class="nav-item" role="presentation">
+                <button class="nav-link" id="ingestion-tab" data-bs-toggle="tab" data-bs-target="#ingestion" type="button">
+                    <i class="bi bi-funnel"></i> Data Ingestion
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
                 <button class="nav-link" id="mappings-tab" data-bs-toggle="tab" data-bs-target="#mappings" type="button">
                     <i class="bi bi-arrow-left-right"></i> Mappings
                 </button>
@@ -101,6 +106,29 @@
 
             <!-- CDC Management Tab -->
             <div class="tab-pane fade" id="cdc" role="tabpanel">
+                <!-- Connection Selector -->
+                <div class="card mb-3 border-primary">
+                    <div class="card-header bg-primary text-white">
+                        <h6 class="mb-0"><i class="bi bi-plug"></i> Select Connection for CDC Operations</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row align-items-end">
+                            <div class="col-md-8">
+                                <label class="form-label">Connection</label>
+                                <select class="form-select" id="cdcConnectionSelector">
+                                    <option value="">-- Select a connection --</option>
+                                </select>
+                                <small class="text-muted">Choose which database to manage CDC settings for</small>
+                            </div>
+                            <div class="col-md-4">
+                                <button type="button" class="btn btn-outline-secondary" onclick="loadConnectionsForCDC()">
+                                    <i class="bi bi-arrow-clockwise"></i> Refresh Connections
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="row">
                     <div class="col-md-6">
                         <h4>Database CDC Status</h4>
@@ -149,6 +177,159 @@
                 </div>
             </div>
 
+            <!-- Data Ingestion Tab -->
+            <div class="tab-pane fade" id="ingestion" role="tabpanel">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h4><i class="bi bi-funnel"></i> Data Ingestion Quality Check</h4>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="loadIngestionPatterns()">
+                        <i class="bi bi-arrow-clockwise"></i> Reload Patterns
+                    </button>
+                </div>
+
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> <strong>Data Ingestion:</strong> Compare data from multiple sources to detect mismatches and validate data quality before creating mappings. The system can detect common patterns like swapped columns, encoding issues, and more.
+                </div>
+
+                <!-- Source Configuration -->
+                <div class="card mb-3">
+                    <div class="card-header bg-primary text-white">
+                        <h6 class="mb-0"><i class="bi bi-database"></i> Configure Data Sources</h6>
+                    </div>
+                    <div class="card-body">
+                        <div id="ingestionSourcesList">
+                            <!-- Sources will be added here dynamically -->
+                        </div>
+                        <button class="btn btn-sm btn-primary" onclick="addIngestionSource()">
+                            <i class="bi bi-plus-circle"></i> Add Source
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Column Mapping Configuration -->
+                <div class="card mb-3">
+                    <div class="card-header bg-info text-white">
+                        <h6 class="mb-0"><i class="bi bi-arrow-left-right"></i> Column Mappings</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Join Keys (comma-separated)</label>
+                            <input type="text" class="form-control" id="ingestionJoinKeys" placeholder="e.g., id, customer_id">
+                            <small class="text-muted">Columns used to match records across sources</small>
+                        </div>
+                        <div id="ingestionColumnMappings">
+                            <!-- Column mappings will be added here -->
+                        </div>
+                        <button class="btn btn-sm btn-secondary" onclick="addIngestionColumnMapping()">
+                            <i class="bi bi-plus-circle"></i> Add Column Mapping
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Pattern Selection -->
+                <div class="card mb-3">
+                    <div class="card-header bg-warning">
+                        <h6 class="mb-0"><i class="bi bi-gear"></i> Pattern Detection</h6>
+                    </div>
+                    <div class="card-body">
+                        <div id="ingestionPatternsList">
+                            <p class="text-muted">Loading patterns...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Analysis Controls -->
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <label class="form-label">Max Records to Analyze</label>
+                                <input type="number" class="form-control" id="ingestionMaxRecords" value="10000" min="1" max="100000">
+                            </div>
+                            <div class="col-md-6 d-flex align-items-end">
+                                <button class="btn btn-success w-100" onclick="runIngestionAnalysis()">
+                                    <i class="bi bi-play-circle"></i> Run Analysis
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Results -->
+                <div class="card" id="ingestionResultsCard" style="display: none;">
+                    <div class="card-header bg-success text-white">
+                        <h6 class="mb-0"><i class="bi bi-bar-chart"></i> Analysis Results</h6>
+                    </div>
+                    <div class="card-body">
+                        <!-- Summary Statistics -->
+                        <div class="row mb-3">
+                            <div class="col-md-3">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <h3 class="text-primary" id="ingestionTotalRecords">0</h3>
+                                        <small class="text-muted">Total Records</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <h3 class="text-success" id="ingestionMatchedRecords">0</h3>
+                                        <small class="text-muted">Matched</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <h3 class="text-danger" id="ingestionUnmatchedRecords">0</h3>
+                                        <small class="text-muted">Unmatched</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <h3 class="text-info" id="ingestionMatchPercentage">0%</h3>
+                                        <small class="text-muted">Match Rate</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Mismatches Table -->
+                        <div id="ingestionMismatchesContainer">
+                            <h6>Mismatched Records</h6>
+                            <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                                <table class="table table-sm table-hover">
+                                    <thead class="table-light sticky-top">
+                                        <tr>
+                                            <th>Row ID</th>
+                                            <th>Column</th>
+                                            <th>Values</th>
+                                            <th>Detected Patterns</th>
+                                            <th>Suggested Fix</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="ingestionMismatchesTable">
+                                        <!-- Mismatches will be populated here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Export Options -->
+                        <div class="mt-3">
+                            <button class="btn btn-outline-primary btn-sm" onclick="exportIngestionResults('csv')">
+                                <i class="bi bi-file-earmark-spreadsheet"></i> Export to CSV
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="exportIngestionResults('json')">
+                                <i class="bi bi-filetype-json"></i> Export to JSON
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Mappings Tab (Unified) -->
             <div class="tab-pane fade" id="mappings" role="tabpanel">
                 <div class="row">
@@ -157,6 +338,12 @@
                             <div>
                                 <button class="btn btn-primary" onclick="showMappingWizard()">
                                     <i class="bi bi-plus-circle"></i> Create New Mapping
+                                </button>
+                                <button class="btn btn-success ms-2" onclick="showMultiSourceBuilder()">
+                                    <i class="bi bi-diagram-3"></i> Multi-Source (Form)
+                                </button>
+                                <button class="btn btn-info ms-2" onclick="showVisualMergeBuilder()">
+                                    <i class="bi bi-bounding-box"></i> Visual Builder
                                 </button>
                                 <button class="btn btn-secondary ms-2" onclick="loadMappings()">
                                     <i class="bi bi-arrow-clockwise"></i> Refresh
@@ -177,6 +364,15 @@
                     <div class="col-12">
                         <div id="mappingsList">
                             <p class="text-muted">No mappings configured. Create one to get started.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Multi-Source Sync Status -->
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <div id="multiSourceStatusContainer">
+                            <!-- Status will be rendered here by JavaScript -->
                         </div>
                     </div>
                 </div>
@@ -669,6 +865,15 @@
                                     Set as active working set immediately
                                 </label>
                             </div>
+                            <div class="form-check mt-2">
+                                <input class="form-check-input" type="checkbox" id="wsDataIngestionCheck">
+                                <label class="form-check-label" for="wsDataIngestionCheck">
+                                    Enable data ingestion quality check
+                                </label>
+                                <small class="form-text text-muted d-block">
+                                    When enabled, data will be analyzed for quality issues before synchronization
+                                </small>
+                            </div>
                         </div>
 
                         <hr class="my-4">
@@ -980,10 +1185,29 @@
                                 <div class="mb-3">
                                     <label class="form-label">Connection Type</label>
                                     <select class="form-select" id="wizardConnectionType" onchange="onWizardConnectionTypeChange()">
-                                        <option value="manual">Manual Connection</option>
+                                        <option value="library">Saved Connection</option>
                                         <option value="workset">Use Existing Working Set</option>
                                     </select>
                                     <small class="text-muted">Choose how to connect to the database for testing</small>
+                                </div>
+
+                                <!-- Saved Connection Selection -->
+                                <div id="wizardConnectionLibraryDiv">
+                                    <div class="mb-2">
+                                        <label class="form-label">Select Connection</label>
+                                        <select class="form-select" id="wizardConnectionLibrary">
+                                            <option value="">-- Select Connection --</option>
+                                        </select>
+                                        <small class="text-muted">Choose a saved connection from the library</small>
+                                    </div>
+                                    <div class="d-flex gap-2">
+                                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="showConnectionModal()">
+                                            <i class="bi bi-plus-circle"></i> Quick Create Connection
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="loadConnectionsForWizard()">
+                                            <i class="bi bi-arrow-clockwise"></i> Refresh List
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <!-- Working Set Selection -->
@@ -993,41 +1217,6 @@
                                         <option value="">-- Select Working Set --</option>
                                     </select>
                                     <small class="text-muted">Use the source connection from an existing working set</small>
-                                </div>
-
-                                <!-- Manual Connection -->
-                                <div id="wizardConnectionManualDiv">
-                                    <div class="row mb-2">
-                                        <div class="col-md-8">
-                                            <label class="form-label">Server</label>
-                                            <input type="text" class="form-control form-control-sm" id="wizardTestServer" placeholder="localhost">
-                                        </div>
-                                        <div class="col-md-4">
-                                            <label class="form-label">Port (optional)</label>
-                                            <input type="number" class="form-control form-control-sm" id="wizardTestPort" placeholder="1433">
-                                            <small class="text-muted">Leave empty for default/dynamic</small>
-                                        </div>
-                                    </div>
-                                    <div class="mb-2">
-                                        <label class="form-label">Database</label>
-                                        <input type="text" class="form-control form-control-sm" id="wizardTestDatabase">
-                                    </div>
-                                    <div class="form-check form-switch mb-2">
-                                        <input class="form-check-input" type="checkbox" id="wizardTestWindowsAuth" onchange="onWizardTestWindowsAuthChange()">
-                                        <label class="form-check-label" for="wizardTestWindowsAuth">Use Windows Authentication</label>
-                                    </div>
-                                    <div id="wizardTestCredentialsDiv">
-                                        <div class="row mb-2">
-                                            <div class="col-md-6">
-                                                <label class="form-label">Username</label>
-                                                <input type="text" class="form-control form-control-sm" id="wizardTestUsername">
-                                            </div>
-                                            <div class="col-md-6">
-                                                <label class="form-label">Password</label>
-                                                <input type="password" class="form-control form-control-sm" id="wizardTestPassword">
-                                            </div>
-                                        </div>
-                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1227,12 +1416,491 @@
         </div>
     </div>
 
+    <!-- Multi-Source Mapping Builder Modal -->
+    <div class="modal fade" id="multiSourceModal" tabindex="-1" aria-labelledby="multiSourceModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title" id="multiSourceModalLabel">
+                        <i class="bi bi-diagram-3"></i> Multi-Source Mapping Builder
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- Basic Info -->
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Mapping ID</label>
+                            <input type="text" class="form-control" id="msId" placeholder="multi_customer_360">
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label">Mapping Name</label>
+                            <input type="text" class="form-control" id="msName" placeholder="Customer 360 View">
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Destination Schema</label>
+                            <input type="text" class="form-control" id="msDestSchema" value="dbo">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Destination Table</label>
+                            <input type="text" class="form-control" id="msDestTable" placeholder="Customer360">
+                        </div>
+                    </div>
+
+                    <!-- Sources Section -->
+                    <div class="card mb-3">
+                        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-database"></i> Sources</span>
+                            <button class="btn btn-sm btn-light" onclick="showAddSourceModal()">
+                                <i class="bi bi-plus"></i> Add Source
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div id="msSourcesList"></div>
+                        </div>
+                    </div>
+
+                    <!-- Operations Section -->
+                    <div class="card mb-3">
+                        <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-gear"></i> Merge Operations</span>
+                            <button class="btn btn-sm btn-light" onclick="showAddOperationModal()">
+                                <i class="bi bi-plus"></i> Add Operation
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div id="msOperationsList"></div>
+                        </div>
+                    </div>
+
+                    <!-- Output Columns Section -->
+                    <div class="card mb-3">
+                        <div class="card-header bg-warning d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-arrow-right-square"></i> Output Columns</span>
+                            <button class="btn btn-sm btn-dark" onclick="showAddOutputColumnModal()">
+                                <i class="bi bi-plus"></i> Add Column
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div id="msOutputColumnsList"></div>
+                        </div>
+                    </div>
+
+                    <!-- Preview Results -->
+                    <div class="card">
+                        <div class="card-header bg-secondary text-white">
+                            <i class="bi bi-eye"></i> Preview
+                        </div>
+                        <div class="card-body">
+                            <div id="msPreviewResults">
+                                <p class="text-muted">Click "Preview" to see merge results</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" onclick="previewMultiSourceMerge()">
+                        <i class="bi bi-eye"></i> Preview
+                    </button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" onclick="saveMultiSourceMapping()">
+                        <i class="bi bi-save"></i> Save Mapping
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Source Modal -->
+    <div class="modal fade" id="addSourceModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add Source</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="multiSourceForm">
+                        <input type="hidden" id="msSourceId">
+                        <div class="mb-3">
+                            <label class="form-label">Connection</label>
+                            <select class="form-select" id="msSourceConnection" required>
+                                <option value="">-- Select Connection --</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Alias (used in queries)</label>
+                            <input type="text" class="form-control" id="msSourceAlias" placeholder="crm" required>
+                            <small class="text-muted">Short identifier like: crm, erp, support</small>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Schema</label>
+                                <input type="text" class="form-control" id="msSourceSchema" value="dbo" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Table</label>
+                                <input type="text" class="form-control" id="msSourceTable" required>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">WHERE Clause (optional)</label>
+                            <input type="text" class="form-control" id="msSourceWhere" placeholder="status = 'active'">
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="msSourceEnableCDC" checked>
+                            <label class="form-check-label" for="msSourceEnableCDC">
+                                Enable CDC for this source
+                            </label>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="addSource()">Add Source</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Operation Modal -->
+    <div class="modal fade" id="addOperationModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add Merge Operation</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="mergeOperationForm">
+                        <div class="mb-3">
+                            <label class="form-label">Operation Type</label>
+                            <select class="form-select" id="msOpType" onchange="onOperationTypeChange()">
+                                <option value="join">JOIN</option>
+                                <option value="union">UNION</option>
+                                <option value="intersect">INTERSECT</option>
+                                <option value="except">EXCEPT</option>
+                            </select>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Left Source</label>
+                                <select class="form-select" id="msOpLeftSource"></select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Right Source</label>
+                                <select class="form-select" id="msOpRightSource"></select>
+                            </div>
+                        </div>
+
+                        <!-- JOIN-specific fields -->
+                        <div id="msOpJoinFields">
+                            <div class="mb-3">
+                                <label class="form-label">Join Type</label>
+                                <select class="form-select" id="msOpJoinType">
+                                    <option value="INNER">INNER JOIN</option>
+                                    <option value="LEFT">LEFT JOIN</option>
+                                    <option value="RIGHT">RIGHT JOIN</option>
+                                    <option value="FULL">FULL OUTER JOIN</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">ON Condition</label>
+                                <input type="text" class="form-control" id="msOpOnCondition" placeholder="left.customer_id = right.customer_id">
+                            </div>
+                        </div>
+
+                        <!-- UNION-specific fields -->
+                        <div id="msOpUnionFields" style="display: none;">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="msOpUnionAll" checked>
+                                <label class="form-check-label" for="msOpUnionAll">
+                                    UNION ALL (keep duplicates)
+                                </label>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="addOperation()">Add Operation</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Output Column Modal -->
+    <div class="modal fade" id="addOutputColumnModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add Output Column</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="outputColumnForm">
+                        <div class="mb-3">
+                            <label class="form-label">Source Alias</label>
+                            <select class="form-select" id="msOutSourceAlias"></select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Source Column</label>
+                            <input type="text" class="form-control" id="msOutSourceColumn" placeholder="customer_id">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Destination Column</label>
+                            <input type="text" class="form-control" id="msOutDestColumn" placeholder="customer_id">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Transformation (optional)</label>
+                            <input type="text" class="form-control" id="msOutTransformation" placeholder="UPPER(customer_name)">
+                            <small class="text-muted">SQL expression for transformation</small>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="addOutputColumn()">Add Column</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Visual Merge Builder Modal -->
+    <div class="modal fade" id="visualMergeBuilderModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-fullscreen">
+            <div class="modal-content">
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title">
+                        <i class="bi bi-bounding-box"></i> Visual Merge Builder
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <div class="container-fluid">
+                        <div class="row">
+                            <!-- Left Sidebar - Node Palette -->
+                            <div class="col-md-2 border-end p-3">
+                                <div class="node-palette">
+                                    <div class="palette-section">
+                                        <div class="palette-section-title">Sources</div>
+                                        <button class="btn btn-sm btn-outline-primary palette-item" onclick="showAddSourceNodeDialog()">
+                                            <i class="bi bi-database"></i> Add Source
+                                        </button>
+                                    </div>
+
+                                    <div class="palette-section">
+                                        <div class="palette-section-title">Operations</div>
+                                        <button class="btn btn-sm btn-outline-info palette-item" onclick="addOperationNode('join')">
+                                            <i class="bi bi-diagram-3"></i> JOIN
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-info palette-item" onclick="addOperationNode('union')">
+                                            <i class="bi bi-union"></i> UNION
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-info palette-item" onclick="addOperationNode('intersect')">
+                                            <i class="bi bi-intersect"></i> INTERSECT
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-info palette-item" onclick="addOperationNode('except')">
+                                            <i class="bi bi-dash-circle"></i> EXCEPT
+                                        </button>
+                                    </div>
+
+                                    <div class="palette-section">
+                                        <div class="palette-section-title">Output</div>
+                                        <button class="btn btn-sm btn-outline-success palette-item" onclick="addDestinationNode()">
+                                            <i class="bi bi-box-arrow-in-down"></i> Destination
+                                        </button>
+                                    </div>
+
+                                    <hr>
+
+                                    <div class="palette-section">
+                                        <div class="palette-section-title">Load Existing</div>
+                                        <select class="form-select form-select-sm mb-2" id="visualLoadMappingSelect">
+                                            <option value="">-- Select Mapping --</option>
+                                        </select>
+                                        <button class="btn btn-sm btn-outline-primary palette-item w-100" onclick="loadMappingIntoVisualizer()">
+                                            <i class="bi bi-download"></i> Load
+                                        </button>
+                                    </div>
+
+                                    <hr>
+
+                                    <div class="palette-section">
+                                        <div class="palette-section-title">Actions</div>
+                                        <button class="btn btn-sm btn-outline-danger palette-item" onclick="clearVisualCanvas()">
+                                            <i class="bi bi-trash"></i> Clear All
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Center - Canvas -->
+                            <div class="col-md-7 p-3">
+                                <div class="visual-toolbar mb-2">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <input type="text" class="form-control form-control-sm" id="visualMappingId" placeholder="Mapping ID">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <input type="text" class="form-control form-control-sm" id="visualMappingName" placeholder="Mapping Name">
+                                        </div>
+                                    </div>
+                                    <div class="row mt-2">
+                                        <div class="col-md-6">
+                                            <input type="text" class="form-control form-control-sm" id="visualDestSchema" value="dbo" placeholder="Dest Schema">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <input type="text" class="form-control form-control-sm" id="visualDestTable" placeholder="Dest Table">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="visual-merge-canvas-container">
+                                    <div id="visualMergeCanvas"></div>
+                                </div>
+
+                                <div class="mt-2 text-muted">
+                                    <small><i class="bi bi-info-circle"></i> Drag nodes from the palette, connect with arrows, configure operations</small>
+                                </div>
+                            </div>
+
+                            <!-- Right Sidebar - Preview -->
+                            <div class="col-md-3 border-start p-3">
+                                <h6>Preview</h6>
+                                <div class="visual-preview-section" id="visualPreviewResults">
+                                    <p class="text-muted">Click Preview to see results</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" onclick="previewVisualMerge()">
+                        <i class="bi bi-eye"></i> Preview
+                    </button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-info" onclick="saveVisualMerge()">
+                        <i class="bi bi-save"></i> Save
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Visual Source Modal -->
+    <div class="modal fade" id="addVisualSourceModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add Source Node</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="visualSourceForm">
+                        <div class="mb-3">
+                            <label class="form-label">Connection</label>
+                            <select class="form-select" id="visualSourceConnection" required>
+                                <option value="">-- Select --</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Alias</label>
+                            <input type="text" class="form-control" id="visualSourceAlias" placeholder="crm" required>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Schema</label>
+                                <input type="text" class="form-control" id="visualSourceSchema" value="dbo" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Table</label>
+                                <input type="text" class="form-control" id="visualSourceTable" required>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">WHERE Clause (optional)</label>
+                            <input type="text" class="form-control" id="visualSourceWhere">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="addSourceNodeToCanvas()">Add to Canvas</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Configure JOIN Modal -->
+    <div class="modal fade" id="configureJoinModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Configure JOIN</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Join Type</label>
+                        <select class="form-select" id="visualJoinType">
+                            <option value="INNER">INNER JOIN</option>
+                            <option value="LEFT">LEFT JOIN</option>
+                            <option value="RIGHT">RIGHT JOIN</option>
+                            <option value="FULL">FULL OUTER JOIN</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">ON Condition</label>
+                        <input type="text" class="form-control" id="visualOnCondition" placeholder="left.id = right.customer_id">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="saveJoinConfig()">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Configure UNION Modal -->
+    <div class="modal fade" id="configureUnionModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Configure UNION</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="visualUnionAll" checked>
+                        <label class="form-check-label" for="visualUnionAll">
+                            UNION ALL (keep duplicates)
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="saveUnionConfig()">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <link rel="stylesheet" href="/static/visual-merge-builder.css">
+    <script src="/static/cdc_toolsets_app.js"></script>
     <script src="/static/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/static/jsplumb/browser-ui/js/jsplumb.browser-ui.umd.js"></script>
     <script src="/static/admin.js"></script>
     <script src="/static/workflow-designer.js"></script>
     <script src="/static/mapping-wizard.js"></script>
     <script src="/static/connections.js"></script>
+    <script src="/static/multi-source-builder.js"></script>
+    <script src="/static/visual-merge-builder.js"></script>
+    <script src="/static/data-ingestion.js"></script>
 </body>
 </html>
 

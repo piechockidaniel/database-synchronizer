@@ -10,7 +10,7 @@ from typing import List, Optional, Tuple
 from pathlib import Path
 from datetime import datetime
 from backend.models.workflow_schemas import (
-    VisualWorkflow, WorkflowNode, WorkflowEdge,
+    VisualWorkflow, WorkflowNode,
     WorkflowListItem, WorkflowValidationResult
 )
 

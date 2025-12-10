@@ -74,6 +74,22 @@ class MappingType(str, Enum):
     SQL = "sql"  # SQL query-based mapping
 
 
+class MergeOperationType(str, Enum):
+    """Types of merge operations for multi-source mappings."""
+    JOIN = "join"           # SQL JOIN (INNER, LEFT, RIGHT, FULL)
+    UNION = "union"         # Vertical stacking (UNION or UNION ALL)
+    INTERSECT = "intersect" # Common rows only
+    EXCEPT = "except"       # Rows in first but not second
+    CUSTOM = "custom"       # Custom SQL expression
+
+
+class ConflictResolutionStrategy(str, Enum):
+    """Strategy for resolving conflicts in multi-source merges."""
+    LATEST_WINS = "latest_wins"           # Most recent update wins
+    SOURCE_PRIORITY = "source_priority"   # Prioritize specific source
+    CUSTOM_RULE = "custom_rule"           # User-defined resolution
+
+
 class ColumnMapping(BaseModel):
     """Column-to-column mapping.
     
@@ -97,6 +113,55 @@ class ColumnMapping(BaseModel):
     default_value: Optional[str] = None  # Default value if source is NULL or missing (can be SQL expression)
 
 
+# Multi-Source Mapping Models
+
+class SourceConfig(BaseModel):
+    """Configuration for a single source in multi-source mapping."""
+    id: str = Field(..., description="Unique source identifier within mapping")
+    connection_id: str = Field(..., description="Reference to saved connection ID")
+    alias: str = Field(..., description="Alias used in merge operations (e.g., 'crm', 'erp')")
+    schema: str = Field(..., description="Schema name")
+    table: str = Field(..., description="Table name")
+
+    # CDC tracking (per source)
+    enable_cdc: bool = True
+    cdc_capture_instance: Optional[str] = None
+
+    # Filtering
+    where_clause: Optional[str] = Field(None, description="Optional WHERE condition for this source")
+
+
+class OutputColumnMapping(BaseModel):
+    """Maps source columns to destination columns in merge result."""
+    source_alias: str = Field(..., description="Source alias (e.g., 'crm', 'erp', or 'merged')")
+    source_column: str = Field(..., description="Column name in the source")
+    destination_column: str = Field(..., description="Column name in destination table")
+    transformation: Optional[str] = Field(None, description="Optional SQL transformation expression")
+
+
+class MergeOperation(BaseModel):
+    """Single merge operation in a pipeline."""
+    type: MergeOperationType
+    left_source: str = Field(..., description="Left source alias or 'previous_result'")
+    right_source: str = Field(..., description="Right source alias")
+
+    # For JOIN operations
+    join_type: Optional[str] = Field(None, description="INNER, LEFT, RIGHT, FULL")
+    on_condition: Optional[str] = Field(None, description="JOIN condition (e.g., 'left.id = right.customer_id')")
+
+    # For UNION operations
+    union_all: bool = True  # True = UNION ALL, False = UNION (distinct)
+
+    # Custom SQL
+    custom_expression: Optional[str] = None
+
+
+class MergePattern(BaseModel):
+    """Defines how multiple sources are merged."""
+    operations: List[MergeOperation] = Field(..., description="Ordered list of merge operations")
+    output_columns: List[OutputColumnMapping] = Field(..., description="Final column selection and mapping")
+
+
 class Mapping(BaseModel):
     """Unified mapping configuration supporting both table-based and SQL-based mappings."""
     id: str = Field(..., description="Unique mapping ID")
@@ -115,9 +180,17 @@ class Mapping(BaseModel):
     batch_size: int = Field(default=1000, description="Batch size for processing records")
     timeout_seconds: int = Field(default=300, description="Query timeout in seconds")
     
-    # Table-specific fields (when mapping_type == TABLE)
-    source_schema: Optional[str] = Field(None, description="Source schema name (for TABLE type)")
-    source_table: Optional[str] = Field(None, description="Source table name (for TABLE type)")
+    # Multi-source support
+    is_multi_source: bool = False
+    sources: List[SourceConfig] = Field(default_factory=list, description="Multiple source configurations")
+    merge_pattern: Optional[MergePattern] = Field(None, description="Pattern for merging multiple sources")
+    conflict_resolution: ConflictResolutionStrategy = ConflictResolutionStrategy.LATEST_WINS
+    source_priority: List[str] = Field(default_factory=list, description="Ordered list of source IDs (highest priority first)")
+
+    # Table-specific fields (when mapping_type == TABLE and is_multi_source == False)
+    # DEPRECATED when is_multi_source == True (use sources instead)
+    source_schema: Optional[str] = Field(None, description="Source schema name (for TABLE type, single source)")
+    source_table: Optional[str] = Field(None, description="Source table name (for TABLE type, single source)")
     column_mappings: List[ColumnMapping] = Field(default_factory=list, description="Column mappings (for TABLE type)")
     sync_deletes: bool = True  # For TABLE type
     sync_updates: bool = True  # For TABLE type
@@ -160,6 +233,7 @@ class WorkingSet(BaseModel):
     table_mappings: List[str] = Field(default_factory=list, description="DEPRECATED: List of table mapping IDs")
     sql_mappings: List[str] = Field(default_factory=list, description="DEPRECATED: List of SQL mapping IDs")
     is_active: bool = False
+    data_ingestion_check: bool = Field(default=False, description="Enable data ingestion quality check before sync")
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
@@ -253,6 +327,89 @@ class VerificationResult(BaseModel):
     reverse_mapping_success_rate: float
     mismatches: List[Dict[str, Any]] = Field(default_factory=list)
     errors: List[str] = Field(default_factory=list)
+
+
+# Data Ingestion Models
+
+class PatternType(str, Enum):
+    """Pattern detection type enum."""
+    COLUMN_SWAP = "column_swap"
+    CHARACTER_NORMALIZATION = "character_normalization"
+    CASE_NORMALIZATION = "case_normalization"
+    WHITESPACE_NORMALIZATION = "whitespace_normalization"
+
+
+class IngestionPattern(BaseModel):
+    """Pattern configuration for data ingestion."""
+    id: str = Field(..., description="Unique pattern ID")
+    name: str = Field(..., description="Pattern name")
+    description: str = Field(..., description="Pattern description")
+    type: PatternType = Field(..., description="Pattern type")
+    enabled: bool = Field(default=True, description="Whether pattern is enabled")
+    priority: int = Field(default=1, description="Pattern priority (lower runs first)")
+    config: Dict[str, Any] = Field(default_factory=dict, description="Pattern-specific configuration")
+
+
+class DataSourceConfig(BaseModel):
+    """Configuration for a data source in ingestion analysis."""
+    connection_id: str = Field(..., description="Connection ID from connection library")
+    schema_name: str = Field(..., description="Schema name")
+    table_name: str = Field(..., description="Table name")
+    alias: str = Field(..., description="Alias for this source (e.g., 'source1', 'source2')")
+    columns: List[str] = Field(default_factory=list, description="Columns to compare")
+    where_clause: Optional[str] = Field(None, description="Optional WHERE clause for filtering")
+
+
+class ColumnMapping(BaseModel):
+    """Mapping between columns across sources."""
+    name: str = Field(..., description="Logical column name")
+    source_columns: Dict[str, str] = Field(..., description="Map of source alias to column name")
+
+
+class IngestionAnalysisRequest(BaseModel):
+    """Request to analyze data from multiple sources."""
+    sources: List[DataSourceConfig] = Field(..., description="List of data sources to compare")
+    column_mappings: List[ColumnMapping] = Field(..., description="Column mappings across sources")
+    join_keys: List[str] = Field(..., description="Columns to use for joining/matching records")
+    apply_patterns: List[str] = Field(default_factory=list, description="Pattern IDs to apply")
+    max_records: int = Field(default=10000, description="Maximum records to analyze")
+
+
+class MismatchDetail(BaseModel):
+    """Details about a data mismatch."""
+    row_id: str = Field(..., description="Unique identifier for the row")
+    column_name: str = Field(..., description="Column with mismatch")
+    values: Dict[str, Any] = Field(..., description="Values from each source")
+    detected_patterns: List[str] = Field(default_factory=list, description="Patterns that could resolve this mismatch")
+    suggested_fix: Optional[str] = Field(None, description="Suggested fix for the mismatch")
+
+
+class IngestionAnalysisResult(BaseModel):
+    """Result of data ingestion analysis."""
+    total_records: int = Field(..., description="Total records processed")
+    matched_records: int = Field(..., description="Number of matched records")
+    unmatched_records: int = Field(..., description="Number of unmatched records")
+    match_percentage: float = Field(..., description="Percentage of matched records")
+    mismatches: List[MismatchDetail] = Field(default_factory=list, description="Details of mismatched records")
+    patterns_applied: List[str] = Field(default_factory=list, description="Patterns that were applied")
+    statistics: Dict[str, Any] = Field(default_factory=dict, description="Additional statistics")
+    execution_time_ms: float = Field(..., description="Execution time in milliseconds")
+    timestamp: datetime = Field(default_factory=datetime.now, description="Analysis timestamp")
+
+
+class PatternTestRequest(BaseModel):
+    """Request to test a pattern on sample data."""
+    pattern_id: str = Field(..., description="Pattern ID to test")
+    sample_data: List[Dict[str, Any]] = Field(..., description="Sample data to test pattern on")
+
+
+class PatternTestResult(BaseModel):
+    """Result of pattern testing."""
+    pattern_id: str
+    matches_found: int
+    sample_results: List[Dict[str, Any]] = Field(default_factory=list)
+    success: bool
+    message: str
 
 
 

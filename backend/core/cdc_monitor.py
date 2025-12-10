@@ -25,7 +25,7 @@ class CDCMonitor:
         self.poll_interval = 5  # seconds
         self.monitor_task: Optional[asyncio.Task] = None
         self.active_mappings: List[Mapping] = []
-        self.lsn_state: Dict[str, bytes] = {}
+        self.lsn_state: Dict[str, Optional[bytes]] = {}
     
     def set_connection(self, connection: MSSQLConnection):
         """Set source database connection.
@@ -82,9 +82,9 @@ class CDCMonitor:
                     logger.info(f"Loaded LSN state for {table_key}: {last_lsn_hex}")
                 except Exception as e:
                     logger.error(f"Error loading LSN state for {table_key}: {e}")
-                    self.lsn_state[table_key] = bytes
+                    self.lsn_state[table_key] = None
             else:
-                self.lsn_state[table_key] = bytes
+                self.lsn_state[table_key] = None
     
     def _save_lsn_state(self, table_key: str, lsn: bytes):
         """Save last processed LSN for a table.

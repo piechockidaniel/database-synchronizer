@@ -1682,7 +1682,8 @@ async function saveWorksetFromModal() {
         source_connection: sourceConnection,
         destination_connection: destinationConnection,
         mappings: selectedMappings,  // Unified mappings list
-        is_active: false  // Will be set via activate endpoint if needed
+        is_active: false,  // Will be set via activate endpoint if needed
+        data_ingestion_check: document.getElementById('wsDataIngestionCheck').checked
     };
     
     try {

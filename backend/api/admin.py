@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field
 from backend.models.schemas import (
     ConnectionConfig, ConnectionTestResponse, DatabaseInfo,
     TableInfo, ColumnInfo, CDCEnableRequest, CDCStatusResponse,
-    Mapping, MappingType, WorkingSet, ConnectionType
+    Mapping, MappingType, WorkingSet, ConnectionType,
+    IngestionAnalysisRequest, PatternTestRequest, PatternTestResult
 )
 from backend.db.mssql_manager import MSSQLConnection, connection_pool
 from backend.db.cdc_operations import CDCOperations
@@ -1311,6 +1312,120 @@ async def compile_workflow_to_mapping(workflow_id: str) -> WorkflowCompileResult
         raise
     except Exception as e:
         logger.error(f"Error compiling workflow: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Data Ingestion Management
+
+@router.get("/ingestion/patterns")
+async def get_ingestion_patterns():
+    """Get all available ingestion patterns.
+
+    Returns:
+        List of ingestion patterns
+    """
+    try:
+        from backend.core.data_ingestion_engine import ingestion_engine
+        patterns = ingestion_engine.get_patterns()
+        return {"success": True, "patterns": [p.dict() for p in patterns]}
+    except Exception as e:
+        logger.error(f"Error getting ingestion patterns: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ingestion/patterns/reload")
+async def reload_ingestion_patterns():
+    """Reload ingestion patterns from configuration.
+
+    Returns:
+        Success response
+    """
+    try:
+        from backend.core.data_ingestion_engine import ingestion_engine
+        ingestion_engine.reload_patterns()
+        patterns = ingestion_engine.get_patterns()
+        return {
+            "success": True,
+            "message": f"Reloaded {len(patterns)} patterns",
+            "patterns": [p.dict() for p in patterns]
+        }
+    except Exception as e:
+        logger.error(f"Error reloading ingestion patterns: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ingestion/analyze")
+async def analyze_ingestion_data(request: IngestionAnalysisRequest):
+    """Analyze data from multiple sources and detect mismatches.
+
+    Args:
+        request: Analysis request with sources and configuration
+
+    Returns:
+        Analysis result with matched/unmatched records
+    """
+    try:
+        from backend.core.data_ingestion_engine import ingestion_engine
+
+        result = ingestion_engine.analyze_sources(
+            sources=request.sources,
+            column_mappings=request.column_mappings,
+            join_keys=request.join_keys,
+            apply_patterns=request.apply_patterns,
+            max_records=request.max_records
+        )
+
+        return {"success": True, "result": result.dict()}
+    except Exception as e:
+        logger.error(f"Error analyzing ingestion data: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ingestion/test-pattern")
+async def test_pattern(request: PatternTestRequest):
+    """Test a pattern on sample data.
+
+    Args:
+        request: Pattern test request
+
+    Returns:
+        Pattern test result
+    """
+    try:
+        from backend.core.data_ingestion_engine import ingestion_engine
+
+        if request.pattern_id not in ingestion_engine.detectors:
+            raise HTTPException(status_code=404, detail=f"Pattern '{request.pattern_id}' not found")
+
+        detector = ingestion_engine.detectors[request.pattern_id]
+        matches_found = 0
+        sample_results = []
+
+        for sample in request.sample_data:
+            matched, fix = detector.detect(sample)
+            if matched:
+                matches_found += 1
+
+            sample_results.append({
+                "input": sample,
+                "matched": matched,
+                "suggested_fix": fix
+            })
+
+        return {
+            "success": True,
+            "result": PatternTestResult(
+                pattern_id=request.pattern_id,
+                matches_found=matches_found,
+                sample_results=sample_results,
+                success=True,
+                message=f"Pattern tested on {len(request.sample_data)} samples"
+            ).dict()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error testing pattern: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

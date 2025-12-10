@@ -233,6 +233,7 @@ class WorkingSet(BaseModel):
     table_mappings: List[str] = Field(default_factory=list, description="DEPRECATED: List of table mapping IDs")
     sql_mappings: List[str] = Field(default_factory=list, description="DEPRECATED: List of SQL mapping IDs")
     is_active: bool = False
+    data_ingestion_check: bool = Field(default=False, description="Enable data ingestion quality check before sync")
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
@@ -326,6 +327,89 @@ class VerificationResult(BaseModel):
     reverse_mapping_success_rate: float
     mismatches: List[Dict[str, Any]] = Field(default_factory=list)
     errors: List[str] = Field(default_factory=list)
+
+
+# Data Ingestion Models
+
+class PatternType(str, Enum):
+    """Pattern detection type enum."""
+    COLUMN_SWAP = "column_swap"
+    CHARACTER_NORMALIZATION = "character_normalization"
+    CASE_NORMALIZATION = "case_normalization"
+    WHITESPACE_NORMALIZATION = "whitespace_normalization"
+
+
+class IngestionPattern(BaseModel):
+    """Pattern configuration for data ingestion."""
+    id: str = Field(..., description="Unique pattern ID")
+    name: str = Field(..., description="Pattern name")
+    description: str = Field(..., description="Pattern description")
+    type: PatternType = Field(..., description="Pattern type")
+    enabled: bool = Field(default=True, description="Whether pattern is enabled")
+    priority: int = Field(default=1, description="Pattern priority (lower runs first)")
+    config: Dict[str, Any] = Field(default_factory=dict, description="Pattern-specific configuration")
+
+
+class DataSourceConfig(BaseModel):
+    """Configuration for a data source in ingestion analysis."""
+    connection_id: str = Field(..., description="Connection ID from connection library")
+    schema_name: str = Field(..., description="Schema name")
+    table_name: str = Field(..., description="Table name")
+    alias: str = Field(..., description="Alias for this source (e.g., 'source1', 'source2')")
+    columns: List[str] = Field(default_factory=list, description="Columns to compare")
+    where_clause: Optional[str] = Field(None, description="Optional WHERE clause for filtering")
+
+
+class ColumnMapping(BaseModel):
+    """Mapping between columns across sources."""
+    name: str = Field(..., description="Logical column name")
+    source_columns: Dict[str, str] = Field(..., description="Map of source alias to column name")
+
+
+class IngestionAnalysisRequest(BaseModel):
+    """Request to analyze data from multiple sources."""
+    sources: List[DataSourceConfig] = Field(..., description="List of data sources to compare")
+    column_mappings: List[ColumnMapping] = Field(..., description="Column mappings across sources")
+    join_keys: List[str] = Field(..., description="Columns to use for joining/matching records")
+    apply_patterns: List[str] = Field(default_factory=list, description="Pattern IDs to apply")
+    max_records: int = Field(default=10000, description="Maximum records to analyze")
+
+
+class MismatchDetail(BaseModel):
+    """Details about a data mismatch."""
+    row_id: str = Field(..., description="Unique identifier for the row")
+    column_name: str = Field(..., description="Column with mismatch")
+    values: Dict[str, Any] = Field(..., description="Values from each source")
+    detected_patterns: List[str] = Field(default_factory=list, description="Patterns that could resolve this mismatch")
+    suggested_fix: Optional[str] = Field(None, description="Suggested fix for the mismatch")
+
+
+class IngestionAnalysisResult(BaseModel):
+    """Result of data ingestion analysis."""
+    total_records: int = Field(..., description="Total records processed")
+    matched_records: int = Field(..., description="Number of matched records")
+    unmatched_records: int = Field(..., description="Number of unmatched records")
+    match_percentage: float = Field(..., description="Percentage of matched records")
+    mismatches: List[MismatchDetail] = Field(default_factory=list, description="Details of mismatched records")
+    patterns_applied: List[str] = Field(default_factory=list, description="Patterns that were applied")
+    statistics: Dict[str, Any] = Field(default_factory=dict, description="Additional statistics")
+    execution_time_ms: float = Field(..., description="Execution time in milliseconds")
+    timestamp: datetime = Field(default_factory=datetime.now, description="Analysis timestamp")
+
+
+class PatternTestRequest(BaseModel):
+    """Request to test a pattern on sample data."""
+    pattern_id: str = Field(..., description="Pattern ID to test")
+    sample_data: List[Dict[str, Any]] = Field(..., description="Sample data to test pattern on")
+
+
+class PatternTestResult(BaseModel):
+    """Result of pattern testing."""
+    pattern_id: str
+    matches_found: int
+    sample_results: List[Dict[str, Any]] = Field(default_factory=list)
+    success: bool
+    message: str
 
 
 

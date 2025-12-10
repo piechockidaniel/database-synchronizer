@@ -42,6 +42,11 @@
                 </button>
             </li>
             <li class="nav-item" role="presentation">
+                <button class="nav-link" id="ingestion-tab" data-bs-toggle="tab" data-bs-target="#ingestion" type="button">
+                    <i class="bi bi-funnel"></i> Data Ingestion
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
                 <button class="nav-link" id="mappings-tab" data-bs-toggle="tab" data-bs-target="#mappings" type="button">
                     <i class="bi bi-arrow-left-right"></i> Mappings
                 </button>
@@ -167,6 +172,159 @@
                                     <p class="text-muted">Click "Check CDC Status" to see CDC-enabled tables</p>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Data Ingestion Tab -->
+            <div class="tab-pane fade" id="ingestion" role="tabpanel">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h4><i class="bi bi-funnel"></i> Data Ingestion Quality Check</h4>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="loadIngestionPatterns()">
+                        <i class="bi bi-arrow-clockwise"></i> Reload Patterns
+                    </button>
+                </div>
+
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> <strong>Data Ingestion:</strong> Compare data from multiple sources to detect mismatches and validate data quality before creating mappings. The system can detect common patterns like swapped columns, encoding issues, and more.
+                </div>
+
+                <!-- Source Configuration -->
+                <div class="card mb-3">
+                    <div class="card-header bg-primary text-white">
+                        <h6 class="mb-0"><i class="bi bi-database"></i> Configure Data Sources</h6>
+                    </div>
+                    <div class="card-body">
+                        <div id="ingestionSourcesList">
+                            <!-- Sources will be added here dynamically -->
+                        </div>
+                        <button class="btn btn-sm btn-primary" onclick="addIngestionSource()">
+                            <i class="bi bi-plus-circle"></i> Add Source
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Column Mapping Configuration -->
+                <div class="card mb-3">
+                    <div class="card-header bg-info text-white">
+                        <h6 class="mb-0"><i class="bi bi-arrow-left-right"></i> Column Mappings</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Join Keys (comma-separated)</label>
+                            <input type="text" class="form-control" id="ingestionJoinKeys" placeholder="e.g., id, customer_id">
+                            <small class="text-muted">Columns used to match records across sources</small>
+                        </div>
+                        <div id="ingestionColumnMappings">
+                            <!-- Column mappings will be added here -->
+                        </div>
+                        <button class="btn btn-sm btn-secondary" onclick="addIngestionColumnMapping()">
+                            <i class="bi bi-plus-circle"></i> Add Column Mapping
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Pattern Selection -->
+                <div class="card mb-3">
+                    <div class="card-header bg-warning">
+                        <h6 class="mb-0"><i class="bi bi-gear"></i> Pattern Detection</h6>
+                    </div>
+                    <div class="card-body">
+                        <div id="ingestionPatternsList">
+                            <p class="text-muted">Loading patterns...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Analysis Controls -->
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <label class="form-label">Max Records to Analyze</label>
+                                <input type="number" class="form-control" id="ingestionMaxRecords" value="10000" min="1" max="100000">
+                            </div>
+                            <div class="col-md-6 d-flex align-items-end">
+                                <button class="btn btn-success w-100" onclick="runIngestionAnalysis()">
+                                    <i class="bi bi-play-circle"></i> Run Analysis
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Results -->
+                <div class="card" id="ingestionResultsCard" style="display: none;">
+                    <div class="card-header bg-success text-white">
+                        <h6 class="mb-0"><i class="bi bi-bar-chart"></i> Analysis Results</h6>
+                    </div>
+                    <div class="card-body">
+                        <!-- Summary Statistics -->
+                        <div class="row mb-3">
+                            <div class="col-md-3">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <h3 class="text-primary" id="ingestionTotalRecords">0</h3>
+                                        <small class="text-muted">Total Records</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <h3 class="text-success" id="ingestionMatchedRecords">0</h3>
+                                        <small class="text-muted">Matched</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <h3 class="text-danger" id="ingestionUnmatchedRecords">0</h3>
+                                        <small class="text-muted">Unmatched</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card text-center">
+                                    <div class="card-body">
+                                        <h3 class="text-info" id="ingestionMatchPercentage">0%</h3>
+                                        <small class="text-muted">Match Rate</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Mismatches Table -->
+                        <div id="ingestionMismatchesContainer">
+                            <h6>Mismatched Records</h6>
+                            <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                                <table class="table table-sm table-hover">
+                                    <thead class="table-light sticky-top">
+                                        <tr>
+                                            <th>Row ID</th>
+                                            <th>Column</th>
+                                            <th>Values</th>
+                                            <th>Detected Patterns</th>
+                                            <th>Suggested Fix</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="ingestionMismatchesTable">
+                                        <!-- Mismatches will be populated here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Export Options -->
+                        <div class="mt-3">
+                            <button class="btn btn-outline-primary btn-sm" onclick="exportIngestionResults('csv')">
+                                <i class="bi bi-file-earmark-spreadsheet"></i> Export to CSV
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="exportIngestionResults('json')">
+                                <i class="bi bi-filetype-json"></i> Export to JSON
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -706,6 +864,15 @@
                                 <label class="form-check-label" for="wsSetActive">
                                     Set as active working set immediately
                                 </label>
+                            </div>
+                            <div class="form-check mt-2">
+                                <input class="form-check-input" type="checkbox" id="wsDataIngestionCheck">
+                                <label class="form-check-label" for="wsDataIngestionCheck">
+                                    Enable data ingestion quality check
+                                </label>
+                                <small class="form-text text-muted d-block">
+                                    When enabled, data will be analyzed for quality issues before synchronization
+                                </small>
                             </div>
                         </div>
 
@@ -1733,6 +1900,7 @@
     <script src="/static/connections.js"></script>
     <script src="/static/multi-source-builder.js"></script>
     <script src="/static/visual-merge-builder.js"></script>
+    <script src="/static/data-ingestion.js"></script>
 </body>
 </html>
 

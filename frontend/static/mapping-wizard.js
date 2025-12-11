@@ -158,8 +158,13 @@ function updateWizardUI() {
 
     if (nextBtn) {
         if (currentStep === 5) {
-            nextBtn.innerHTML = '<i class="bi bi-save"></i> Save Mapping';
-            nextBtn.onclick = saveMappingFromWizard;
+            if (mappingData.id === '') {
+                nextBtn.innerHTML = '<i class="bi bi-save"></i> Save Mapping';
+                nextBtn.onclick = saveMappingFromWizard;
+            } else {
+                nextBtn.innerHTML = '<i class="bi bi-save"></i> Save Mapping';
+                nextBtn.onclick ;
+            }
         } else {
             nextBtn.innerHTML = 'Next <i class="bi bi-arrow-right"></i>';
             nextBtn.onclick = nextWizardStep;

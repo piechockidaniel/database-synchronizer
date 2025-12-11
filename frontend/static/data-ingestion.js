@@ -90,10 +90,14 @@ function addIngestionSource() {
                                placeholder="e.g., source1">
                     </div>
                     <div class="col-md-8 mb-2">
+                        <button class="btn btn-sm btn-outline-primary" onclick="loadConnectionsForSource('${sourceId}')">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
                         <label class="form-label">Connection</label>
                         <select class="form-select form-control-sm" id="${sourceId}_connection">
                             <option value="">-- Select Connection --</option>
                         </select>
+
                     </div>
                 </div>
                 <div class="row">
@@ -128,7 +132,6 @@ function addIngestionSource() {
     `;
 
     document.getElementById('ingestionSourcesList').insertAdjacentHTML('beforeend', sourceHtml);
-
     loadConnectionsForSource(sourceId);
 }
 
@@ -141,13 +144,13 @@ function removeIngestionSource(sourceId) {
 
 async function loadConnectionsForSource(sourceId) {
     try {
-        const response = await fetch('/api/admin/connections/list');
+        const response = await fetch('/api/admin/connection/list');
         const data = await response.json();
 
         const selectElement = document.getElementById(`${sourceId}_connection`);
-        if (selectElement && data.connections) {
+        if (selectElement && data) {
             selectElement.innerHTML = '<option value="">-- Select Connection --</option>';
-            data.connections.forEach(conn => {
+            data.forEach(conn => {
                 selectElement.innerHTML += `<option value="${conn.id}">${conn.name}</option>`;
             });
         }

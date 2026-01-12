@@ -6,7 +6,8 @@
       "Bash(netstat:*)",
       "Bash(findstr:*)",
       "Bash(taskkill /F /PID 73884)",
-      "Bash(taskkill //F //PID 73884)"
+      "Bash(taskkill //F //PID 73884)",
+      "Bash(dir:*)"
     ],
     "deny": [],
     "ask": []

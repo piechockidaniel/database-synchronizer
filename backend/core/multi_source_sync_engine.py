@@ -99,7 +99,9 @@ class MultiSourceSyncEngine:
             raise ValueError("Mapping must be multi-source")
 
         self.mapping = mapping
-        self.executor = MergePatternExecutor()
+        # MergePatternExecutor doesn't need connections_map for execute_merge_for_sync
+        # Pass empty dict to satisfy constructor
+        self.executor = MergePatternExecutor({})
         logger.info(f"Multi-source sync engine configured for mapping: {mapping.name}")
 
     def set_destination_connection(self, connection: MSSQLConnection):
@@ -242,11 +244,12 @@ class MultiSourceSyncEngine:
                 self.destination_connection
             )
 
-            if not result or 'rows' not in result:
+            if not result:
                 return False, "Merge pattern execution failed"
 
+            # Result is a list of rows from execute_merge_for_sync
             # Filter to only affected rows (simplified - would need better key matching)
-            affected_rows = result['rows']  # In production, filter by join_key
+            affected_rows = result  # In production, filter by join_key
 
             if not affected_rows:
                 logger.debug("No rows affected by merge")

@@ -431,5 +431,27 @@ function downloadFile(content, filename, mimeType) {
 }
 
 function showAlert(message, type = 'info') {
-    console.log(`[${type.toUpperCase()}] ${message}`);
+    const alertHtml = `
+        <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
+
+    // Create container if it doesn't exist
+    let container = document.getElementById('alertContainer');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'alertContainer';
+        container.className = 'position-fixed top-0 end-0 p-3';
+        container.style.zIndex = '11';
+        document.body.appendChild(container);
+    }
+
+    container.innerHTML = alertHtml;
+
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+        container.innerHTML = '';
+    }, 5000);
 }

@@ -364,8 +364,15 @@ class MultiSourceCDCMonitor:
             event_dict: Event dictionary
         """
         logger.debug(f"Processing event from source {event_dict.get('_source_alias')}")
-        # TODO: Emit event to sync engine queue
-        pass
+
+        # Forward event to sync engine queue for immediate processing
+        # This event has no join key, so it cannot be batched
+        # The sync engine will handle it as-is
+        try:
+            await self.event_queue.put(event_dict)
+            logger.debug(f"Event forwarded to sync engine queue (immediate mode)")
+        except Exception as e:
+            logger.error(f"Error forwarding event to sync engine: {e}")
 
     async def _process_merged_event(self, event_dict: Dict[str, Any], join_key: Any):
         """Process a merged event by re-executing merge pattern.
@@ -375,8 +382,19 @@ class MultiSourceCDCMonitor:
             join_key: Key value that identifies the affected row
         """
         logger.debug(f"Processing merged event for key {join_key} from source {event_dict.get('_source_alias')}")
-        # TODO: Re-execute merge pattern for this key and sync to destination
-        pass
+
+        # Forward event to sync engine queue with join key metadata
+        # The sync engine will re-execute the merge pattern for this specific key
+        # and apply the merged result to the destination
+        try:
+            # Add join key metadata to the event
+            event_dict['_join_key'] = join_key
+            event_dict['_batched'] = True
+
+            await self.event_queue.put(event_dict)
+            logger.debug(f"Merged event for key {join_key} forwarded to sync engine queue")
+        except Exception as e:
+            logger.error(f"Error forwarding merged event to sync engine: {e}")
 
     async def start(self):
         """Start multi-source CDC monitoring."""
@@ -400,11 +418,12 @@ class MultiSourceCDCMonitor:
             task = asyncio.create_task(self._monitor_source(source_id))
             self.monitor_tasks.append(task)
 
-        # Start event coordinator
-        coordinator_task = asyncio.create_task(self._coordinate_events())
-        self.monitor_tasks.append(coordinator_task)
+        # NOTE: Event coordinator disabled - events flow directly to sync engine queue
+        # The sync engine consumes from self.event_queue and handles all processing
+        # coordinator_task = asyncio.create_task(self._coordinate_events())
+        # self.monitor_tasks.append(coordinator_task)
 
-        logger.info(f"Multi-source CDC monitor started with {len(self.source_monitors)} sources")
+        logger.info(f"Multi-source CDC monitor started with {len(self.source_monitors)} sources (direct queue mode)")
 
     async def stop(self):
         """Stop multi-source CDC monitoring."""
